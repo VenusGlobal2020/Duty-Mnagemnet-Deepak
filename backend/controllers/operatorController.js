@@ -278,8 +278,9 @@ const createDuty = asyncHandler(async (req, res) => {
   });
 
   // Populate and notify
+  // Include userRef so we can target the correct User document for notifications
   const populated = await Duty.findById(duty._id)
-    .populate('assignedOfficers.officerRef', 'name phone')
+    .populate('assignedOfficers.officerRef', 'name phone userRef')
     .populate('assignedOfficers.rankRef', 'name');
 
   for (const ao of populated.assignedOfficers) {
@@ -287,11 +288,10 @@ const createDuty = asyncHandler(async (req, res) => {
       await notifyDutyAssigned(ao.officerRef.phone, ao.officerRef.name,
         dutyName, locationName, startDate, endDate);
     }
-    // Push notification
-    const officerUser = await User.findOne({ _id: ao.officerRef?.userRef || ao.officerRef }).select('_id');
-    if (officerUser) {
+    // officerRef.userRef IS the User._id — use it directly as recipientId
+    if (ao.officerRef?.userRef) {
       await createNotification({
-        recipientId: officerUser._id,
+        recipientId: ao.officerRef.userRef,
         title: 'New Duty Assigned',
         body: `You have been assigned to duty: ${dutyName} at ${locationName}`,
         type: 'duty_assigned', relatedDuty: duty._id, sendPush: true
@@ -554,16 +554,28 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
 // @desc   Get available officers for a given rank (for manual assignment picker)
 // @route  GET /api/operator/officers/available?rankId=...&excludeDutyId=...
 const getAvailableOfficersByRank = asyncHandler(async (req, res) => {
-  const { rankId, excludeDutyId } = req.query;
+  const { rankId, excludeDutyId, search } = req.query;
   if (!rankId) return errorResponse(res, 400, 'rankId is required');
 
   const busyIds = await getBusyOfficerIds(excludeDutyId || null);
 
-  const officers = await Officer.find({
+  const filter = {
     adminRef: req.user.adminRef,
     rankRef: rankId,
     status: 'active'
-  }).select('_id name phone badgeNumber designation').sort({ name: 1 });
+  };
+
+  // Server-side search so large officer pools (100k+) do not choke the client
+  if (search && search.trim()) {
+    filter.$or = [
+      { name: { $regex: search.trim(), $options: 'i' } },
+      { badgeNumber: { $regex: search.trim(), $options: 'i' } }
+    ];
+  }
+
+  const officers = await Officer.find(filter)
+    .select('_id name phone badgeNumber designation')
+    .sort({ name: 1 });
 
   const available = officers.filter(o => !busyIds.has(o._id.toString()));
 

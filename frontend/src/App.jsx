@@ -26,6 +26,7 @@ import OfficerDuties from './pages/officer/OfficerDuties';
 import OfficerHistory from './pages/officer/OfficerHistory';
 import SettingsPage from './pages/shared/SettingsPage';
 import NotFoundPage from './pages/shared/NotFoundPage';
+import NotificationsPage from './pages/shared/NotificationsPage';
 import LoadingSpinner from './components/common/LoadingSpinner';
 
 const ROLE_PATHS = {
@@ -85,6 +86,7 @@ function AppRoutes() {
         <Route path="duties/create" element={<CreateDuty />} />
         <Route path="duties/:dutyId" element={<DutyDetail />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
       </Route>
 
       <Route path="/officer" element={<ProtectedRoute allowedRoles={['officer']}><OfficerLayout /></ProtectedRoute>}>
@@ -92,6 +94,7 @@ function AppRoutes() {
         <Route path="duties" element={<OfficerDuties />} />
         <Route path="history" element={<OfficerHistory />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
       </Route>
 
       <Route path="/" element={<Navigate to="/login" replace />} />

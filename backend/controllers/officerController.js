@@ -36,17 +36,47 @@ const getDutyHistory = asyncHandler(async (req, res) => {
   const officer = await Officer.findOne({ userRef: req.user._id });
   if (!officer) return errorResponse(res, 404, 'Officer profile not found');
 
-  const { page, limit, status } = req.query;
+  const { page, limit } = req.query;
+
+  // Show ALL duties this officer was ever part of:
+  // 1. Completed / cancelled duties (any assignment status)
+  // 2. Active duties where the officer's own slot was rejected or replaced
+  // Currently-active assignments (assigned/accepted) are shown in OfficerDuties, not here.
   const query = {
-    'assignedOfficers.officerRef': officer._id,
-    status: { $in: ['completed', 'cancelled'] }
+    $or: [
+      {
+        'assignedOfficers.officerRef': officer._id,
+        status: { $in: ['completed', 'cancelled'] }
+      },
+      {
+        assignedOfficers: {
+          $elemMatch: {
+            officerRef: officer._id,
+            status: { $in: ['rejected', 'replaced'] }
+          }
+        }
+      }
+    ]
   };
-  if (status) query.status = status;
 
   const result = await paginateQuery(Duty, query, page, limit,
-    [{ path: 'operatorRef', select: 'name' }], { endDate: -1 }
+    [{ path: 'operatorRef', select: 'name' }], { createdAt: -1 }
   );
-  return successResponse(res, 200, 'Duty history fetched', result);
+
+  // Attach this officer's personal assignment status to each duty record
+  const duties = result.data.map(duty => {
+    const myAssignment = duty.assignedOfficers?.find(
+      a => a.officerRef?.toString() === officer._id.toString()
+    );
+    const plain = duty.toObject ? duty.toObject() : { ...duty };
+    return {
+      ...plain,
+      myAssignmentStatus: myAssignment?.status || 'unknown',
+      myRejectionReason: myAssignment?.rejectionReason || null
+    };
+  });
+
+  return successResponse(res, 200, 'Duty history fetched', { ...result, data: duties });
 });
 
 // @desc   Reject a duty assignment
