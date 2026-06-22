@@ -273,7 +273,7 @@ const bulkUploadOfficers = asyncHandler(async (req, res) => {
         continue;
       }
 
-      // const tempPassword = generateTempPassword();
+      const tempPassword = generateTempPassword();
       const userDoc = await User.create({
         name, email: email.toLowerCase(), phone: String(phone),
         password: String(phone), gender: gender || 'male',
