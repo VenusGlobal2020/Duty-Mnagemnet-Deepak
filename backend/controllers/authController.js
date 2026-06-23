@@ -34,7 +34,9 @@ const login = asyncHandler(async (req, res) => {
   const userData = user.toObject();
   delete userData.password;
 
-  return res.json({ success: true, message: 'Login successful', accessToken, refreshToken, user: userData });
+  return successResponse(res, 200, 'Login successful', {
+    user: userData, accessToken, refreshToken
+  });
 });
 
 // @desc   Refresh token
