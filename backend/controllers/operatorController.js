@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Officer = require('../models/Officer');
 const Duty = require('../models/Duty');
 const Rank = require('../models/Rank');
+const Attendance = require('../models/Attendance');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 const { createNotification, bulkNotify } = require('../utils/notificationService');
 const { notifyDutyAssigned, notifyDutyCancelled, notifyDutyUpdated, notifyOfficerReplaced } = require('../utils/whatsapp');
@@ -294,7 +295,7 @@ const createDuty = asyncHandler(async (req, res) => {
         recipientId: ao.officerRef.userRef,
         title: 'New Duty Assigned',
         body: `You have been assigned to duty: ${dutyName} at ${locationName}`,
-        type: 'duty_assigned', relatedDuty: duty._id, sendPush: true
+        type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
       });
     }
   }
@@ -342,7 +343,33 @@ const getDutyById = asyncHandler(async (req, res) => {
     .populate('timeline.performedBy', 'name role');
 
   if (!duty) return errorResponse(res, 404, 'Duty not found');
-  return successResponse(res, 200, 'Duty fetched', { duty });
+
+  // Attach attendance records so frontend can show attendance per officer
+  const attendanceRecords = await Attendance.find({ dutyRef: duty._id })
+    .populate('officerRef', 'name badgeNumber')
+    .sort({ checkedInAt: 1 });
+
+  const attendanceMap = {};
+  for (const rec of attendanceRecords) {
+    if (rec.officerRef) {
+      attendanceMap[rec.officerRef._id.toString()] = {
+        _id: rec._id,
+        checkedInAt: rec.checkedInAt,
+        checkedOutAt: rec.checkedOutAt,
+        durationMinutes: rec.durationMinutes,
+        checkInDistanceMeters: rec.checkInDistanceMeters,
+        status: rec.status,
+        isWithinRadius: rec.isWithinRadius,
+      };
+    }
+  }
+
+  // Google Maps link to duty location (useful for officers navigating to location)
+  const mapsLink = duty.location?.lat && duty.location?.lng
+    ? `https://www.google.com/maps/dir/?api=1&destination=${duty.location.lat},${duty.location.lng}`
+    : null;
+
+  return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, mapsLink });
 });
 
 // @desc   Update duty
@@ -465,7 +492,7 @@ const replaceOfficer = asyncHandler(async (req, res) => {
   await duty.save();
 
   // Notify new officer
-  const officerUser = await User.findOne({ _id: replacement.userRef }).select('fcmToken');
+  const officerUser = await User.findOne({ _id: replacement.userRef }).select('_id');
   if (replacement.phone) {
     await notifyOfficerReplaced(replacement.phone, replacement.name, duty.dutyName, 'Previous officer was unavailable');
   }
@@ -474,7 +501,7 @@ const replaceOfficer = asyncHandler(async (req, res) => {
       recipientId: officerUser._id,
       title: 'New Duty Assigned',
       body: `You have been assigned to duty: ${duty.dutyName}`,
-      type: 'duty_assigned', relatedDuty: duty._id, sendPush: true
+      type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
     });
   }
 
@@ -544,7 +571,7 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
       recipientId: officerUser._id,
       title: 'New Duty Assigned',
       body: `You have been assigned to duty: ${duty.dutyName}`,
-      type: 'duty_assigned', relatedDuty: duty._id, sendPush: true
+      type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
     });
   }
 

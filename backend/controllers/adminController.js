@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/User');
 const Officer = require('../models/Officer');
 const Duty = require('../models/Duty');
+const Attendance = require('../models/Attendance');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 const { sendWelcomeMessage } = require('../utils/whatsapp');
 const crypto = require('crypto');
@@ -110,4 +111,43 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Stats', { operators, officers, totalDuties, activeDuties, completedDuties, cancelledDuties });
 });
 
-module.exports = { createOperator, getOperators, updateOperator, getDuties, getDashboardStats };
+// @desc   Get single duty detail with attendance (admin view)
+// @route  GET /api/admin/duties/:dutyId
+const getDutyById = asyncHandler(async (req, res) => {
+  const duty = await Duty.findOne({ _id: req.params.dutyId, adminRef: req.user._id })
+    .populate('assignedOfficers.officerRef', 'name phone badgeNumber')
+    .populate('assignedOfficers.rankRef', 'name code color')
+    .populate('rankRequirements.rankRef', 'name code color')
+    .populate('operatorRef', 'name phone role')
+    .populate('timeline.performedBy', 'name role');
+
+  if (!duty) return errorResponse(res, 404, 'Duty not found');
+
+  // Attendance records for this duty
+  const attendanceRecords = await Attendance.find({ dutyRef: duty._id })
+    .populate('officerRef', 'name badgeNumber')
+    .sort({ checkedInAt: 1 });
+
+  const attendanceMap = {};
+  for (const rec of attendanceRecords) {
+    if (rec.officerRef) {
+      attendanceMap[rec.officerRef._id.toString()] = {
+        _id: rec._id,
+        checkedInAt: rec.checkedInAt,
+        checkedOutAt: rec.checkedOutAt,
+        durationMinutes: rec.durationMinutes,
+        checkInDistanceMeters: rec.checkInDistanceMeters,
+        status: rec.status,
+        isWithinRadius: rec.isWithinRadius,
+      };
+    }
+  }
+
+  const mapsLink = duty.location?.lat && duty.location?.lng
+    ? `https://www.google.com/maps/dir/?api=1&destination=${duty.location.lat},${duty.location.lng}`
+    : null;
+
+  return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, mapsLink });
+});
+
+module.exports = { createOperator, getOperators, updateOperator, getDuties, getDashboardStats, getDutyById };

@@ -125,7 +125,7 @@ const suspendUser = asyncHandler(async (req, res) => {
   await createNotification({
     recipientId: user._id, title: 'Account Suspended',
     body: `Your account has been suspended. Reason: ${reason}`,
-    type: 'account_suspended', sendPush: true
+    type: 'account_suspended', sendPush: false
   });
 
   return successResponse(res, 200, `${user.role === 'superadmin' ? 'Superadmin' : 'Admin'} suspended`);
@@ -149,7 +149,7 @@ const activateUser = asyncHandler(async (req, res) => {
   await createNotification({
     recipientId: user._id, title: 'Account Activated',
     body: 'Your account has been reactivated. You can now log in.',
-    type: 'account_activated', sendPush: true
+    type: 'account_activated', sendPush: false
   });
 
   return successResponse(res, 200, 'Account activated');

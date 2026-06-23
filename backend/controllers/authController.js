@@ -9,7 +9,7 @@ const { successResponse, errorResponse } = require('../utils/response');
 // @desc   Login
 // @route  POST /api/auth/login
 const login = asyncHandler(async (req, res) => {
-  const { email, password, fcmToken } = req.body;
+  const { email, password } = req.body;
   if (!email || !password) return errorResponse(res, 400, 'Email and password required');
 
   const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
@@ -21,12 +21,7 @@ const login = asyncHandler(async (req, res) => {
   const isMatch = await user.matchPassword(password);
   if (!isMatch) return errorResponse(res, 401, 'Invalid credentials');
 
-  // Save FCM token
-  if (fcmToken) {
-    await User.findByIdAndUpdate(user._id, { fcmToken, lastLogin: new Date() });
-  } else {
-    await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
-  }
+  await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
   const accessToken = generateAccessToken(user._id, user.role);
   const refreshToken = generateRefreshToken(user._id);
@@ -169,12 +164,4 @@ const getMe = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Profile fetched', { user });
 });
 
-// @desc   Update FCM token
-// @route  PATCH /api/auth/fcm-token
-const updateFCMToken = asyncHandler(async (req, res) => {
-  const { fcmToken } = req.body;
-  await User.findByIdAndUpdate(req.user._id, { fcmToken });
-  return successResponse(res, 200, 'FCM token updated');
-});
-
-module.exports = { login, refreshToken, forgotPassword, verifyPasswordOTP, resetPassword, changePassword, getMe, updateFCMToken };
+module.exports = { login, refreshToken, forgotPassword, verifyPasswordOTP, resetPassword, changePassword, getMe };

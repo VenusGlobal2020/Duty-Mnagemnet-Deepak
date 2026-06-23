@@ -6,17 +6,28 @@ const notificationSchema = new mongoose.Schema({
   body: { type: String, required: true },
   type: {
     type: String,
-    enum: ['duty_assigned', 'duty_updated', 'duty_cancelled', 'duty_rejected',
-      'officer_replaced', 'account_suspended', 'account_activated', 'general'],
-    default: 'general'
+    enum: [
+      'duty_assigned',
+      'duty_updated',
+      'duty_cancelled',
+      'duty_rejected',
+      'officer_replaced',
+      'account_suspended',
+      'account_activated',
+      'attendance_checkin',
+      'general',
+    ],
+    default: 'general',
   },
   relatedDuty: { type: mongoose.Schema.Types.ObjectId, ref: 'Duty' },
   isRead: { type: Boolean, default: false },
   readAt: Date,
+  // Keeping channels schema for backward compat with existing records
+  // push.sent will always be false — Firebase removed
   channels: {
-    push: { sent: Boolean, sentAt: Date },
-    whatsapp: { sent: Boolean, sentAt: Date },
-  }
+    push: { sent: { type: Boolean, default: false }, sentAt: Date },
+    whatsapp: { sent: { type: Boolean, default: false }, sentAt: Date },
+  },
 }, { timestamps: true });
 
 notificationSchema.index({ recipientRef: 1, isRead: 1, createdAt: -1 });

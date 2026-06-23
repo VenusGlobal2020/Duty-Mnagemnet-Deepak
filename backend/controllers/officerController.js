@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/User');
 const Officer = require('../models/Officer');
 const Duty = require('../models/Duty');
+const Attendance = require('../models/Attendance');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 const { createNotification } = require('../utils/notificationService');
 const { notifyDutyRejected } = require('../utils/whatsapp');
@@ -27,7 +28,39 @@ const getActiveDuties = asyncHandler(async (req, res) => {
     .populate('operatorRef', 'name phone')
     .sort({ startDate: 1 });
 
-  return successResponse(res, 200, 'Active duties fetched', { duties });
+  // Fetch attendance records for all these duties at once
+  const dutyIds = duties.map((d) => d._id);
+  const attendanceRecords = await Attendance.find({
+    dutyRef: { $in: dutyIds },
+    officerRef: officer._id,
+  });
+
+  const attendanceByDuty = {};
+  for (const rec of attendanceRecords) {
+    attendanceByDuty[rec.dutyRef.toString()] = {
+      checkedInAt: rec.checkedInAt,
+      checkedOutAt: rec.checkedOutAt,
+      status: rec.status,
+      isWithinRadius: rec.isWithinRadius,
+    };
+  }
+
+  const dutiesWithMeta = duties.map((duty) => {
+    const plain = duty.toObject();
+    const att = attendanceByDuty[duty._id.toString()] || null;
+    return {
+      ...plain,
+      attendance: att,
+      hasCheckedIn: !!(att?.checkedInAt),
+      hasCheckedOut: !!(att?.checkedOutAt),
+      // Google Maps navigation deep-link
+      mapsLink: plain.location?.lat && plain.location?.lng
+        ? `https://www.google.com/maps/dir/?api=1&destination=${plain.location.lat},${plain.location.lng}`
+        : null,
+    };
+  });
+
+  return successResponse(res, 200, 'Active duties fetched', { duties: dutiesWithMeta });
 });
 
 // @desc   Get officer's duty history
@@ -124,7 +157,7 @@ const rejectDuty = asyncHandler(async (req, res) => {
       recipientId: operator._id,
       title: 'Duty Rejected by Officer',
       body: `${officer.name} rejected duty: ${duty.dutyName}. Reason: ${reason}`,
-      type: 'duty_rejected', relatedDuty: duty._id, sendPush: true
+      type: 'duty_rejected', relatedDuty: duty._id, sendPush: false
     });
     if (operator.phone) {
       await notifyDutyRejected(operator.phone, operator.name, officer.name, duty.dutyName, reason);
@@ -158,7 +191,35 @@ const getDutyDetails = asyncHandler(async (req, res) => {
     .populate('operatorRef', 'name phone');
 
   if (!duty) return errorResponse(res, 404, 'Duty not found');
-  return successResponse(res, 200, 'Duty details fetched', { duty });
+
+  // Officer's attendance record for this duty
+  const myAttendance = await Attendance.findOne({
+    dutyRef: duty._id,
+    officerRef: officer._id,
+  });
+
+  // Google Maps navigation link to duty location
+  const mapsLink = duty.location?.lat && duty.location?.lng
+    ? `https://www.google.com/maps/dir/?api=1&destination=${duty.location.lat},${duty.location.lng}`
+    : null;
+
+  return successResponse(res, 200, 'Duty details fetched', {
+    duty,
+    mapsLink,
+    attendance: myAttendance
+      ? {
+          _id: myAttendance._id,
+          checkedInAt: myAttendance.checkedInAt,
+          checkedOutAt: myAttendance.checkedOutAt,
+          durationMinutes: myAttendance.durationMinutes,
+          checkInDistanceMeters: myAttendance.checkInDistanceMeters,
+          status: myAttendance.status,
+          isWithinRadius: myAttendance.isWithinRadius,
+        }
+      : null,
+    hasCheckedIn: !!(myAttendance?.checkedInAt),
+    hasCheckedOut: !!(myAttendance?.checkedOutAt),
+  });
 });
 
 module.exports = { getActiveDuties, getDutyHistory, rejectDuty, getOfficerProfile, getDutyDetails };

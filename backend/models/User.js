@@ -30,14 +30,13 @@ const userSchema = new mongoose.Schema({
   // Password reset
   passwordResetOTP: { type: String, select: false },
   passwordResetOTPExpire: { type: Date, select: false },
-  // FCM token for push notifications
-  fcmToken: { type: String },
+  // NOTE: fcmToken removed — Firebase push notifications removed from system
   // Last login
   lastLogin: Date,
-  // For officer - rank reference
+  // For officer — rank reference (denormalized for quick auth middleware access)
   rankRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Rank' },
-  badgeNumber: { type: String },           // officer badge/ID number
-  designation: { type: String },           // officer designation string
+  badgeNumber: { type: String },
+  designation: { type: String },
 }, { timestamps: true });
 
 // Hash password before save
