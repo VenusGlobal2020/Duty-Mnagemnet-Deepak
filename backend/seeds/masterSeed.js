@@ -19,7 +19,7 @@ const seed = async () => {
     // Create master
     const master = await User.create({
       name: 'Super Tech Master',
-      email: 'master@supertech.com',
+      email: 'master@venus.com',
       phone: '9000000000',
       password: 'venus@1978@',
       gender: 'male',
@@ -52,7 +52,7 @@ const seed = async () => {
     console.log('\n🎉 Seed completed successfully!');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('Master Login:');
-    console.log('  Email   : master@supertech.com');
+    console.log('  Email   : master@venus.com');
     console.log('  Password: venus@1978@');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     process.exit(0);
