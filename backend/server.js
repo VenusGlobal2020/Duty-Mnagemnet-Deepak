@@ -30,20 +30,20 @@ app.use(cors({
 }));
 
 // Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
-  message: { success: false, message: 'Too many requests, please try again later.' }
-});
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { success: false, message: 'Too many login attempts, please try again later.' }
-});
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 200,
+//   message: { success: false, message: 'Too many requests, please try again later.' }
+// });
+// const authLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000,
+//   max: 10,
+//   message: { success: false, message: 'Too many login attempts, please try again later.' }
+// });
 
-app.use('/api/', limiter);
-app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/forgot-password', authLimiter);
+// app.use('/api/', limiter);
+// app.use('/api/auth/login', authLimiter);
+// app.use('/api/auth/forgot-password', authLimiter);
 
 // Body parsers
 app.use(express.json({ limit: '10mb' }));
