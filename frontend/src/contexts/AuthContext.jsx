@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../api/axios';
-import { initFirebaseMessaging } from '../utils/firebase';
 
 const AuthContext = createContext(null);
 
@@ -28,10 +27,7 @@ export const AuthProvider = ({ children }) => {
   }, [fetchProfile]);
 
   const login = async (email, password) => {
-    let fcmToken = null;
-    try { fcmToken = await initFirebaseMessaging(); } catch {}
-
-    const { data } = await api.post('/auth/login', { email, password, fcmToken });
+    const { data } = await api.post('/auth/login', { email, password });
     localStorage.setItem('accessToken', data.data.accessToken);
     localStorage.setItem('refreshToken', data.data.refreshToken);
     setUser(data.data.user);

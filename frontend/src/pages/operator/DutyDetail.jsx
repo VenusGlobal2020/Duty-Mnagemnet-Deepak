@@ -1,22 +1,166 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, RefreshCw, XCircle, FileText, MapPin, Clock, Phone, User, CheckCircle, Pencil } from 'lucide-react';
+import {
+  ArrowLeft, RefreshCw, XCircle, FileText, MapPin, Clock, Phone,
+  CheckCircle, Pencil, Users, Download, ExternalLink, Loader2,
+  ClipboardCheck, AlertCircle
+} from 'lucide-react';
 import api from '../../api/axios';
 import { apiError, formatDateTime, getStatusColor, getPriorityColor, getPriorityLabel, getDutyTypeColor } from '../../utils/helpers';
 import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import toast from 'react-hot-toast';
 
+// ─── Attendance status badge ──────────────────────────────────────────────────
+function AttBadge({ status }) {
+  const styles = {
+    present: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    partial: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+    absent:  'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  };
+  const labels = { present: 'Present', partial: 'Checked In', absent: 'Absent' };
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[status] || styles.absent}`}>
+      {labels[status] || 'Absent'}
+    </span>
+  );
+}
+
+// ─── Attendance panel ─────────────────────────────────────────────────────────
+function AttendancePanel({ dutyId, duty }) {
+  const [exporting, setExporting] = useState(false);
+
+  const { data: attData, isLoading } = useQuery({
+    queryKey: ['duty-attendance', dutyId],
+    queryFn: () => api.get(`/attendance/duty/${dutyId}`).then(r => r.data.data),
+  });
+
+  const handleExportPDF = async () => {
+    setExporting(true);
+    try {
+      // Open the backend's print-ready HTML in a new tab — browser handles PDF save
+      const token = localStorage.getItem('accessToken');
+      const base = api.defaults.baseURL || '';
+      const url = `${base}/attendance/duty/${dutyId}/export-pdf`;
+      const win = window.open('about:blank', '_blank');
+      // Fetch with auth header then write into new window
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Export failed');
+      const html = await res.text();
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    } catch (err) {
+      toast.error(apiError(err));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const summary = attData?.summary || [];
+  const stats   = attData?.stats   || {};
+
+  const formatDur = (mins) => {
+    if (!mins) return '—';
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
+  return (
+    <div className="card p-5 space-y-4">
+      {/* Header + Export */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="section-title flex items-center gap-2">
+          <ClipboardCheck className="w-4 h-4 text-primary-500" /> Attendance
+        </h2>
+        <button
+          onClick={handleExportPDF}
+          disabled={exporting}
+          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 font-medium transition-colors disabled:opacity-60"
+        >
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          Export PDF
+        </button>
+      </div>
+
+      {/* Stats row */}
+      {!isLoading && (
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { label: 'Total', value: stats.totalAssigned || 0, cls: 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400' },
+            { label: 'Present', value: stats.present || 0, cls: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400' },
+            { label: 'Checked In', value: stats.partial || 0, cls: 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400' },
+            { label: 'Absent', value: stats.absent || 0, cls: 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400' },
+          ].map(s => (
+            <div key={s.label} className={`rounded-lg p-2.5 text-center ${s.cls}`}>
+              <div className="text-xl font-bold">{s.value}</div>
+              <div className="text-[11px] font-medium mt-0.5">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="py-6 flex justify-center">
+          <div className="w-5 h-5 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+        </div>
+      ) : summary.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-4">No assigned officers found</p>
+      ) : (
+        <div className="overflow-x-auto -mx-5">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead className="bg-gray-50 dark:bg-gray-800/50">
+              <tr>
+                {['Officer', 'Rank', 'Check-In', 'Check-Out', 'Duration', 'Status'].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {summary.map((s, i) => (
+                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-gray-900 dark:text-white">{s.officer?.name || '—'}</p>
+                    {s.officer?.badgeNumber && <p className="text-xs text-gray-400">#{s.officer.badgeNumber}</p>}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{s.rank?.name || '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                    {s.attendance?.checkedInAt ? formatDateTime(s.attendance.checkedInAt) : '—'}
+                    {s.attendance?.checkInDistanceMeters != null && (
+                      <p className="text-gray-400">{s.attendance.checkInDistanceMeters}m away</p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                    {s.attendance?.checkedOutAt ? formatDateTime(s.attendance.checkedOutAt) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                    {formatDur(s.attendance?.durationMinutes)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <AttBadge status={s.attendanceStatus} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function DutyDetail() {
   const { dutyId } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [cancelDialog, setCancelDialog] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
+  const [cancelDialog, setCancelDialog]   = useState(false);
+  const [cancelReason, setCancelReason]   = useState('');
   const [replaceTarget, setReplaceTarget] = useState(null);
-  const [manualEditTarget, setManualEditTarget] = useState(null); // assignment being manually changed
-  const [manualPickId, setManualPickId] = useState('');
+  const [manualEditTarget, setManualEditTarget] = useState(null);
+  const [manualPickId, setManualPickId]   = useState('');
 
   const { data: duty, isLoading } = useQuery({
     queryKey: ['op-duty-detail', dutyId],
@@ -26,7 +170,8 @@ export default function DutyDetail() {
   const cancelMut = useMutation({
     mutationFn: (reason) => api.patch(`/operator/duties/${dutyId}/cancel`, { reason }),
     onSuccess: () => {
-      toast.success('Duty cancelled'); qc.invalidateQueries(['op-duty-detail', dutyId]);
+      toast.success('Duty cancelled');
+      qc.invalidateQueries(['op-duty-detail', dutyId]);
       setCancelDialog(false);
     },
     onError: (err) => toast.error(apiError(err)),
@@ -36,7 +181,8 @@ export default function DutyDetail() {
     mutationFn: (assignmentId) => api.patch(`/operator/duties/${dutyId}/replace/${assignmentId}`),
     onSuccess: (res) => {
       toast.success(`Replaced with ${res.data.data.replacement.name}`);
-      qc.invalidateQueries(['op-duty-detail', dutyId]); setReplaceTarget(null);
+      qc.invalidateQueries(['op-duty-detail', dutyId]);
+      setReplaceTarget(null);
     },
     onError: (err) => toast.error(apiError(err)),
   });
@@ -45,9 +191,10 @@ export default function DutyDetail() {
     mutationFn: ({ assignmentId, officerId }) =>
       api.patch(`/operator/duties/${dutyId}/assignments/${assignmentId}/manual-replace`, { officerId }),
     onSuccess: (res) => {
-      toast.success(`Officer changed to ${res.data.data.replacement.name}. They've been notified.`);
+      toast.success(`Officer changed to ${res.data.data.replacement.name}.`);
       qc.invalidateQueries(['op-duty-detail', dutyId]);
-      setManualEditTarget(null); setManualPickId('');
+      setManualEditTarget(null);
+      setManualPickId('');
     },
     onError: (err) => toast.error(apiError(err)),
   });
@@ -60,13 +207,16 @@ export default function DutyDetail() {
 
   if (!duty) return <div className="text-center py-20 text-gray-400">Duty not found</div>;
 
-  const activeOfficers = duty.assignedOfficers?.filter(a => ['accepted', 'assigned'].includes(a.status)) || [];
+  const activeOfficers   = duty.assignedOfficers?.filter(a => ['accepted', 'assigned'].includes(a.status)) || [];
   const rejectedOfficers = duty.assignedOfficers?.filter(a => a.status === 'rejected') || [];
+  const dutyStarted      = new Date(duty.startDate) <= new Date();
+  const canEditOfficers  = duty.status === 'active' && !dutyStarted;
 
-  // Once the duty's start time has passed, officers can no longer be changed —
-  // editing (manual swap) and replace are both hidden from this point on.
-  const dutyStarted = new Date(duty.startDate) <= new Date();
-  const canEditOfficers = duty.status === 'active' && !dutyStarted;
+  const openMaps = () => {
+    if (!duty.location?.lat || !duty.location?.lng) return;
+    const { lat, lng } = duty.location;
+    window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`, '_blank');
+  };
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -75,7 +225,7 @@ export default function DutyDetail() {
         <ArrowLeft className="w-4 h-4" /> Back to Duties
       </button>
 
-      {/* Header */}
+      {/* Header card */}
       <div className="card p-5">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
@@ -102,7 +252,17 @@ export default function DutyDetail() {
             <div>
               <p className="text-xs text-gray-400">Location</p>
               <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{duty.locationName}</p>
-              <p className="text-xs text-gray-400">{duty.location?.lat}, {duty.location?.lng}</p>
+              {duty.location?.lat && (
+                <div className="flex items-center gap-2 mt-1">
+                  <p className="text-xs text-gray-400">{duty.location.lat}, {duty.location.lng}</p>
+                  <button
+                    onClick={openMaps}
+                    className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Maps
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-start gap-2">
@@ -118,7 +278,9 @@ export default function DutyDetail() {
               <Phone className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
               <div>
                 <p className="text-xs text-gray-400">Contact Numbers</p>
-                {duty.phoneNumbers.map((ph, i) => <p key={i} className="text-sm font-medium text-gray-800 dark:text-gray-200">{ph}</p>)}
+                {duty.phoneNumbers.map((ph, i) => (
+                  <p key={i} className="text-sm font-medium text-gray-800 dark:text-gray-200">{ph}</p>
+                ))}
               </div>
             </div>
           )}
@@ -134,6 +296,9 @@ export default function DutyDetail() {
         </div>
       </div>
 
+      {/* ── Attendance Panel ── */}
+      <AttendancePanel dutyId={dutyId} duty={duty} />
+
       {/* Active Officers */}
       <div className="card p-5">
         <h2 className="section-title mb-4 flex items-center gap-2">
@@ -146,14 +311,20 @@ export default function DutyDetail() {
             {activeOfficers.map(ao => (
               <div key={ao._id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                    style={{ backgroundColor: ao.rankRef?.color || '#6b7280' }}>
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+                    style={{ backgroundColor: ao.rankRef?.color || '#6b7280' }}
+                  >
                     {ao.officerRef?.name?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-900 dark:text-white">{ao.officerRef?.name}</p>
                     <div className="flex items-center gap-1.5">
-                      {ao.rankRef && <span className="text-xs px-1.5 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: ao.rankRef.color }}>{ao.rankRef.code}</span>}
+                      {ao.rankRef && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: ao.rankRef.color }}>
+                          {ao.rankRef.code}
+                        </span>
+                      )}
                       <span className={`badge text-xs ${getStatusColor(ao.status)}`}>{ao.status}</span>
                     </div>
                   </div>
@@ -164,7 +335,6 @@ export default function DutyDetail() {
                     <button
                       onClick={() => { setManualEditTarget(ao); setManualPickId(''); }}
                       className="btn-secondary text-xs px-2.5 py-1.5"
-                      title="Change officer"
                     >
                       <Pencil className="w-3 h-3" /> Edit
                     </button>
@@ -189,7 +359,7 @@ export default function DutyDetail() {
             {rejectedOfficers.map(ao => (
               <div key={ao._id} className="flex items-center justify-between bg-red-50 dark:bg-red-900/20 rounded-lg p-3 border border-red-100 dark:border-red-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 font-bold text-sm">
+                  <div className="w-9 h-9 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 font-bold text-sm shrink-0">
                     {ao.officerRef?.name?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div>
@@ -200,7 +370,7 @@ export default function DutyDetail() {
                 {canEditOfficers && (
                   <div className="flex items-center gap-2">
                     <button onClick={() => { setManualEditTarget(ao); setManualPickId(''); }} className="btn-secondary text-xs px-3 py-1.5">
-                      <Pencil className="w-3 h-3" /> Choose Officer
+                      <Pencil className="w-3 h-3" /> Choose
                     </button>
                     <button onClick={() => setReplaceTarget(ao)} className="btn-primary text-xs px-3 py-1.5">
                       <RefreshCw className="w-3 h-3" /> Random
@@ -210,9 +380,6 @@ export default function DutyDetail() {
               </div>
             ))}
           </div>
-          {!canEditOfficers && (
-            <p className="text-xs text-gray-400 mt-3">This duty has started, so rejected assignments can no longer be replaced.</p>
-          )}
         </div>
       )}
 
@@ -251,19 +418,23 @@ export default function DutyDetail() {
         </div>
       </div>
 
-      {/* Cancel Dialog */}
+      {/* Modals */}
       <Modal isOpen={cancelDialog} onClose={() => setCancelDialog(false)} title="Cancel Duty" size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600 dark:text-gray-400">All assigned officers will be notified via WhatsApp and push notification.</p>
-          <div><label className="form-label">Reason for cancellation</label><textarea className="input-field" rows={3} placeholder="Enter reason..." value={cancelReason} onChange={e => setCancelReason(e.target.value)} /></div>
+          <p className="text-sm text-gray-600 dark:text-gray-400">All assigned officers will be notified via WhatsApp.</p>
+          <div>
+            <label className="form-label">Reason for cancellation</label>
+            <textarea className="input-field" rows={3} placeholder="Enter reason..." value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
+          </div>
           <div className="flex gap-3">
             <button onClick={() => setCancelDialog(false)} className="btn-secondary flex-1">Back</button>
-            <button onClick={() => cancelMut.mutate(cancelReason)} disabled={cancelMut.isPending} className="btn-danger flex-1">{cancelMut.isPending ? 'Cancelling...' : 'Cancel Duty'}</button>
+            <button onClick={() => cancelMut.mutate(cancelReason)} disabled={cancelMut.isPending} className="btn-danger flex-1">
+              {cancelMut.isPending ? 'Cancelling...' : 'Cancel Duty'}
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* Replace confirm (random) */}
       <ConfirmDialog
         isOpen={!!replaceTarget}
         onClose={() => setReplaceTarget(null)}
@@ -274,7 +445,6 @@ export default function DutyDetail() {
         confirmLabel="Replace Randomly"
       />
 
-      {/* Manual officer change modal */}
       <Modal isOpen={!!manualEditTarget} onClose={() => { setManualEditTarget(null); setManualPickId(''); }} title="Change Officer" size="sm">
         {manualEditTarget && (
           <ManualOfficerSwap
@@ -292,9 +462,6 @@ export default function DutyDetail() {
   );
 }
 
-// Lets the operator pick a specific replacement officer (instead of a random
-// one) for any active or rejected assignment, as long as the duty hasn't
-// started yet. Only shows officers of the same rank who are actually free.
 function ManualOfficerSwap({ dutyId, assignment, pickId, setPickId, onCancel, onConfirm, loading }) {
   const rankId = assignment.rankRef?._id || assignment.rankRef;
 
