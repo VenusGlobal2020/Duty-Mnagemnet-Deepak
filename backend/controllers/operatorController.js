@@ -10,13 +10,15 @@ const { notifyDutyAssigned, notifyDutyCancelled, notifyDutyUpdated, notifyOffice
 const { cloudinary } = require('../config/cloudinary');
 
 // An officer is "busy" while they hold a live assignment (assigned/accepted) on
-// any duty that is still active. Rejected/replaced assignments don't count, and
-// duties that are completed/cancelled don't count either. This list is what
-// drives both the availability counters and what the auto/manual assignment
-// flows are allowed to pick from — this is what was missing before, which is
-// why availability counts never went down after officers got assigned.
+// any duty that is still upcoming or ongoing — that means status 'draft' (not
+// started yet) or 'active' (currently running). Rejected/replaced assignments
+// don't count, and duties that are completed/cancelled don't count either.
+// This list is what drives both the availability counters and what the
+// auto/manual assignment flows are allowed to pick from — this is what was
+// missing before, which is why availability counts never went down after
+// officers got assigned.
 const getBusyOfficerIds = async (excludeDutyId = null) => {
-  const dutyFilter = { status: 'active', 'assignedOfficers.status': { $in: ['assigned', 'accepted'] } };
+  const dutyFilter = { status: { $in: ['draft', 'active'] }, 'assignedOfficers.status': { $in: ['assigned', 'accepted'] } };
   if (excludeDutyId) dutyFilter._id = { $ne: excludeDutyId };
 
   const activeDuties = await Duty.find(dutyFilter).select('assignedOfficers');
@@ -275,7 +277,10 @@ const createDuty = asyncHandler(async (req, res) => {
     operatorRef: req.user._id,
     adminRef: req.user.adminRef,
     superadminRef: admin.superadminRef,
-    timeline: [{ action: 'DUTY_CREATED', performedBy: req.user._id, note: 'Duty created' }]
+    // Always created as draft — the cron job (jobs/dutyStatusCron.js) flips
+    // this to 'active' automatically once startDate is reached.
+    status: 'draft',
+    timeline: [{ action: 'DUTY_CREATED', performedBy: req.user._id, note: 'Duty created (draft)' }]
   });
 
   // Populate and notify
@@ -544,7 +549,7 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
 
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
   if (!duty) return errorResponse(res, 404, 'Duty not found');
-  if (duty.status !== 'active') return errorResponse(res, 400, 'Only active duties can be edited');
+  if (!['draft', 'active'].includes(duty.status)) return errorResponse(res, 400, 'Only draft or active duties can be edited');
   if (new Date(duty.startDate) <= new Date()) {
     return errorResponse(res, 400, 'Duty has already started — officers can no longer be changed');
   }

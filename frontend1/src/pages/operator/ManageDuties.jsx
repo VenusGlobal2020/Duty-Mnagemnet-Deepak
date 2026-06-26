@@ -84,6 +84,7 @@ export default function ManageDuties() {
         </div>
         <select className="input-field sm:w-36" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
           <option value="">All Status</option>
+          <option value="draft">Draft</option>
           <option value="active">Active</option>
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>

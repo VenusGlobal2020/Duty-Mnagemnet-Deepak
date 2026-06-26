@@ -146,6 +146,7 @@ function DutiesTable({ queryKey, queryFn, showAdmin = false, showOperator = true
         </div>
         <select className="input-field sm:w-40" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
           <option value="">All Status</option>
+          <option value="draft">Draft</option>
           <option value="active">Active</option>
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>

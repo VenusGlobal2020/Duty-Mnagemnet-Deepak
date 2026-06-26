@@ -130,16 +130,17 @@ const getDutiesForMap = asyncHandler(async (req, res) => {
 // @route  GET /api/admin/dashboard
 const getDashboardStats = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
-  const [operators, officers, totalDuties, activeDuties, completedDuties, cancelledDuties] = await Promise.all([
+  const [operators, officers, totalDuties, draftDuties, activeDuties, completedDuties, cancelledDuties] = await Promise.all([
     User.countDocuments({ adminRef: adminId, role: { $in: ['operator_special', 'operator_regular'] } }),
     Officer.countDocuments({ adminRef: adminId }),
     Duty.countDocuments({ adminRef: adminId }),
+    Duty.countDocuments({ adminRef: adminId, status: 'draft' }),
     Duty.countDocuments({ adminRef: adminId, status: 'active' }),
     Duty.countDocuments({ adminRef: adminId, status: 'completed' }),
     Duty.countDocuments({ adminRef: adminId, status: 'cancelled' }),
   ]);
 
-  return successResponse(res, 200, 'Stats', { operators, officers, totalDuties, activeDuties, completedDuties, cancelledDuties });
+  return successResponse(res, 200, 'Stats', { operators, officers, totalDuties, draftDuties, activeDuties, completedDuties, cancelledDuties });
 });
 
 // @desc   Get single duty detail with attendance (admin view)

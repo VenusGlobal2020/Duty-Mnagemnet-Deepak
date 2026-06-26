@@ -210,7 +210,11 @@ export default function DutyDetail() {
   const activeOfficers   = duty.assignedOfficers?.filter(a => ['accepted', 'assigned'].includes(a.status)) || [];
   const rejectedOfficers = duty.assignedOfficers?.filter(a => a.status === 'rejected') || [];
   const dutyStarted      = new Date(duty.startDate) <= new Date();
-  const canEditOfficers  = duty.status === 'active' && !dutyStarted;
+  // Draft duties haven't started yet (cron flips them to active automatically
+  // at startDate), so officers can still be edited on a draft exactly like on
+  // an active-but-not-yet-started duty.
+  const canEditOfficers  = ['draft', 'active'].includes(duty.status) && !dutyStarted;
+  const canCancel        = ['draft', 'active'].includes(duty.status) && !dutyStarted;
 
   const openMaps = () => {
     if (!duty.location?.lat || !duty.location?.lng) return;
@@ -234,6 +238,11 @@ export default function DutyDetail() {
               <span className={`badge ${getStatusColor(duty.status)}`}>{duty.status.toUpperCase()}</span>
               <span className={`badge border ${getPriorityColor(duty.priority)}`}>{getPriorityLabel(duty.priority)}</span>
               {duty.dutyType && <span className={`badge ${getDutyTypeColor(duty.dutyType)}`}>{duty.dutyType}</span>}
+              {duty.status === 'draft' && (
+                <span className="badge bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 inline-flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> Will go live automatically at start time
+                </span>
+              )}
               {dutyStarted && duty.status === 'active' && (
                 <span className="badge bg-signal-100 text-signal-700 dark:bg-signal-400/10 dark:text-signal-400 inline-flex items-center gap-1">
                   <Lock className="w-3 h-3" /> Duty in progress — locked
@@ -241,7 +250,7 @@ export default function DutyDetail() {
               )}
             </div>
           </div>
-          {duty.status === 'active' && !dutyStarted && (
+          {canCancel && (
             <button onClick={() => setCancelDialog(true)} className="btn-danger text-sm">
               <XCircle className="w-4 h-4" /> Cancel Duty
             </button>

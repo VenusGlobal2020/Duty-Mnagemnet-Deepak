@@ -48,10 +48,14 @@ const dutySchema = new mongoose.Schema({
   // Assigned officers
   assignedOfficers: [assignedOfficerSchema],
   // Status
+  // Lifecycle: draft (created, not yet started) -> active (between start/end) ->
+  // completed (past end time). cancelled is a manual terminal state from any point.
+  // The cron job in jobs/dutyStatusCron.js is what flips draft->active->completed
+  // automatically based on startDate/endDate; nothing else should silently change this.
   status: {
     type: String,
     enum: ['draft', 'active', 'completed', 'cancelled'],
-    default: 'active'
+    default: 'draft'
   },
   // Hierarchy
   operatorRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -66,6 +70,8 @@ const dutySchema = new mongoose.Schema({
   }],
 }, { timestamps: true });
 
+dutySchema.index({ status: 1, startDate: 1 });
+dutySchema.index({ status: 1, endDate: 1 });
 dutySchema.index({ operatorRef: 1, status: 1 });
 dutySchema.index({ adminRef: 1, status: 1 });
 dutySchema.index({ superadminRef: 1, status: 1 });

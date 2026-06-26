@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Users, ClipboardList, CheckCircle, XCircle, Building2 } from 'lucide-react';
+import { Users, ClipboardList, CheckCircle, XCircle, Building2, FileEdit } from 'lucide-react';
 import api from '../../api/axios';
 import StatCard from '../../components/common/StatCard';
 
@@ -18,10 +18,11 @@ export default function AdminDashboard() {
         <h1 className="text-2xl font-display font-bold text-ink-900 dark:text-white">ACP Dashboard</h1>
         <p className="text-sm text-ink-500 dark:text-ink-400 mt-1">Your area operations overview</p>
       </div>
-      <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard icon={Users} label="Operators" value={stats?.operators} color="blue" />
         <StatCard icon={Users} label="Officers" value={stats?.officers} color="green" />
         <StatCard icon={ClipboardList} label="Total Duties" value={stats?.totalDuties} color="purple" />
+        <StatCard icon={FileEdit} label="Draft" value={stats?.draftDuties} color="yellow" />
         <StatCard icon={ClipboardList} label="Active Duties" value={stats?.activeDuties} color="orange" />
         <StatCard icon={CheckCircle} label="Completed" value={stats?.completedDuties} color="green" />
         <StatCard icon={XCircle} label="Cancelled" value={stats?.cancelledDuties} color="red" />

@@ -260,10 +260,11 @@ export default function MapView() {
     queryKey: ['mapview-duties', role, adminId, operatorId, status],
     queryFn: async () => {
       if (officerView) {
-        // Officers only ever see their own currently-active assignments —
-        // reuse the existing endpoint rather than adding a parallel one.
+        // Officers see their own upcoming (draft) and live (active) assignments
+        // from this one endpoint — the drafted/active split below is what tells
+        // them apart in the UI, the cron job is what promotes draft -> active.
         const list = await api.get('/officer/duties/active').then(r => r.data.data.duties);
-        return list; // already status: 'active' by definition of this endpoint
+        return list;
       }
       const params = new URLSearchParams();
       if (status) params.set('status', status);

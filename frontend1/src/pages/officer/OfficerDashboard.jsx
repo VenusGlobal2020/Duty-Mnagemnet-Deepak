@@ -33,14 +33,14 @@ export default function OfficerDashboard() {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <StatCard icon={ClipboardList} label="Active Duties" value={activeDuties.length} color="blue" />
+        <StatCard icon={ClipboardList} label="My Duties" value={activeDuties.length} color="blue" />
         <StatCard icon={CheckCircle} label="Past Duties" value={historyData?.pagination?.total ?? 0} color="green" />
       </div>
 
       {activeDuties.length > 0 ? (
         <div className="card">
           <div className="p-4 border-b border-ink-100 dark:border-white/[0.06]">
-            <h2 className="section-title">Current Active Duties</h2>
+            <h2 className="section-title">My Upcoming &amp; Live Duties</h2>
           </div>
           <div className="divide-y divide-ink-100 dark:divide-white/[0.05]">
             {activeDuties.map(duty => (
@@ -52,9 +52,14 @@ export default function OfficerDashboard() {
                       <MapPin className="w-3 h-3" />{duty.locationName}
                     </p>
                   </div>
-                  <span className={`badge border ${getPriorityColor(duty.priority)}`}>
-                    {getPriorityLabel(duty.priority)}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`badge ${getStatusColor(duty.status)}`}>
+                      {duty.status === 'draft' ? 'Upcoming' : 'Live'}
+                    </span>
+                    <span className={`badge border ${getPriorityColor(duty.priority)}`}>
+                      {getPriorityLabel(duty.priority)}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 mt-2 text-xs text-ink-400 font-mono">
                   <Clock className="w-3 h-3" />
@@ -67,7 +72,7 @@ export default function OfficerDashboard() {
       ) : (
         <div className="card p-10 text-center text-ink-400">
           <ClipboardList className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No active duties assigned</p>
+          <p className="text-sm">No duties assigned right now</p>
         </div>
       )}
     </div>

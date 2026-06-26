@@ -120,6 +120,11 @@ function DutyCard({ duty }) {
   const isActionLoading = locLoading || checkInMut.isPending || checkOutMut.isPending;
   const dutyStarted = new Date(duty.startDate) <= new Date();
   const canReject = !hasCheckedIn && !dutyStarted;
+  // Check-in only makes sense once the duty is actually live — a 'draft' duty
+  // hasn't started yet (the cron flips it to 'active' automatically right at
+  // startDate), so check-in stays hidden/disabled until then instead of letting
+  // the officer tap it and hit a backend error.
+  const canCheckIn = duty.status === 'active' && dutyStarted;
 
   return (
     <div className="card p-5 space-y-4">
@@ -220,8 +225,8 @@ function DutyCard({ duty }) {
             </button>
           )}
 
-          {/* Check-in button */}
-          {!hasCheckedIn && (
+          {/* Check-in button — only once the duty is actually live */}
+          {!hasCheckedIn && canCheckIn && (
             <button
               onClick={handleCheckIn}
               disabled={isActionLoading}
@@ -252,7 +257,13 @@ function DutyCard({ duty }) {
           )}
         </div>
 
-        {!hasCheckedIn && (
+        {!hasCheckedIn && !canCheckIn && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            Check-in opens once the duty starts ({formatDateTime(duty.startDate)}).
+          </p>
+        )}
+        {!hasCheckedIn && canCheckIn && (
           <p className="text-xs text-ink-400">
             <Navigation className="w-3 h-3 inline mr-1" />
             You must be within 1 km of the duty location to check in.
@@ -324,7 +335,7 @@ export default function OfficerDuties() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold font-display text-ink-900 dark:text-white">My Active Duties</h1>
+      <h1 className="text-xl font-bold font-display text-ink-900 dark:text-white">My Duties</h1>
 
       {isLoading ? (
         <div className="card py-12 flex justify-center">
@@ -333,7 +344,7 @@ export default function OfficerDuties() {
       ) : duties.length === 0 ? (
         <div className="card p-12 text-center text-ink-400">
           <ClipboardList className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No active duties assigned to you</p>
+          <p className="text-sm">No duties assigned to you right now</p>
         </div>
       ) : (
         <div className="space-y-4">

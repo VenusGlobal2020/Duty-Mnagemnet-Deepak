@@ -16,6 +16,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
+const { startDutyStatusCron } = require('./jobs/dutyStatusCron');
 
 const app = express();
 
@@ -80,6 +81,7 @@ mongoose
   .then(() => {
     console.log('✅ MongoDB connected');
     app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    startDutyStatusCron();
   })
   .catch((err) => {
     console.error('❌ MongoDB connection error:', err);

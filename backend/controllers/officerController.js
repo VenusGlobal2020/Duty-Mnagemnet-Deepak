@@ -18,8 +18,13 @@ const getActiveDuties = asyncHandler(async (req, res) => {
   // entry (possibly a different officer's) has a live status — so a duty stayed
   // in this officer's "active" list even after THEY had rejected it, as long as
   // some other officer on the same duty was still assigned/accepted.
+  //
+  // Status is 'draft' OR 'active' here (not just 'active') so an officer can see
+  // and prepare for a duty that's been assigned to them but hasn't started yet —
+  // the cron job flips draft -> active automatically once startDate is reached,
+  // this list just needs to include both so duties don't disappear/reappear.
   const duties = await Duty.find({
-    status: 'active',
+    status: { $in: ['draft', 'active'] },
     assignedOfficers: {
       $elemMatch: { officerRef: officer._id, status: { $in: ['assigned', 'accepted'] } }
     }
@@ -125,7 +130,7 @@ const rejectDuty = asyncHandler(async (req, res) => {
 
   const duty = await Duty.findOne({
     _id: req.params.dutyId,
-    status: 'active',
+    status: { $in: ['draft', 'active'] },
     'assignedOfficers.officerRef': officer._id
   });
   if (!duty) return errorResponse(res, 404, 'Duty not found or not assigned to you');
