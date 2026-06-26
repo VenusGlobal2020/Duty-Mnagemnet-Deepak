@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Minus, MapPin, Upload, X, AlertTriangle, UserCheck, Search, Map as MapIcon } from 'lucide-react';
+import { Plus, Minus, MapPin, Upload, X, AlertTriangle, UserCheck, Search, Map as MapIcon, Car, Phone } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiError } from '../../utils/helpers';
@@ -19,6 +19,7 @@ export default function CreateDuty() {
     startDate: '', endDate: '', priority: '3',
     dutyType: isSpecial ? 'CITY-POINT' : '',
     description: '',
+    vehicleNumber: '',
   });
   const [phoneNumbers, setPhoneNumbers] = useState(['']);
   const [rankRequirements, setRankRequirements] = useState([
@@ -28,6 +29,7 @@ export default function CreateDuty() {
   const [rankWarning, setRankWarning] = useState([]);
   const [manualWarning, setManualWarning] = useState([]);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
+  
 
   const { data: ranks = [] } = useQuery({
     queryKey: ['op-ranks'],
@@ -66,7 +68,6 @@ export default function CreateDuty() {
     const validRanks = rankRequirements.filter(r => r.rankRef);
     if (validRanks.length === 0) { toast.error('Add at least one rank requirement'); return; }
 
-    // Fix #2 — validate manual selection count matches the required count exactly
     for (const r of validRanks) {
       if (r.assignmentType === 'manual') {
         const selected = (r.manualOfficerIds || []).length;
@@ -83,6 +84,11 @@ export default function CreateDuty() {
           return;
         }
       }
+    }
+
+    // Validate vehicle number format (optional but if provided must be valid)
+    if (form.vehicleNumber && !/^[A-Z0-9 \-]{2,15}$/i.test(form.vehicleNumber)) {
+      toast.error('Vehicle number format is invalid'); return;
     }
 
     const manualAssignments = validRanks
@@ -124,8 +130,6 @@ export default function CreateDuty() {
       if (current.includes(officerId)) {
         return { ...x, manualOfficerIds: current.filter(id => id !== officerId) };
       }
-      // Allow selecting more than count so user sees the mismatch warning live —
-      // the hard block happens at submit time, giving them a chance to fix it.
       return { ...x, manualOfficerIds: [...current, officerId] };
     }));
   };
@@ -255,6 +259,23 @@ export default function CreateDuty() {
                 </select>
               </div>
             )}
+
+            {/* Vehicle Number — optional */}
+            <div>
+              <label className="form-label flex items-center gap-1.5">
+                <Car className="w-3.5 h-3.5 text-ink-400" /> Vehicle Number
+                <span className="text-xs font-normal text-ink-400">(optional)</span>
+              </label>
+              <input
+                className="input-field uppercase tracking-widest"
+                placeholder="e.g. UP70AB1234"
+                maxLength={15}
+                value={form.vehicleNumber}
+                onChange={e => setForm(p => ({ ...p, vehicleNumber: e.target.value.toUpperCase() }))}
+              />
+              <p className="text-xs text-ink-400 mt-1">Vehicle assigned to this duty, if any.</p>
+            </div>
+
             <div className="sm:col-span-2">
               <label className="form-label">Description (optional)</label>
               <textarea className="input-field" rows={3} placeholder="Additional details..."
@@ -266,9 +287,9 @@ export default function CreateDuty() {
         {/* Rank Requirements */}
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="section-title">Rank Requirements</h2>
+            <h2 className="section-title">Resources Requirements</h2>
             <button type="button" onClick={addRank} className="btn-secondary text-sm py-1.5 px-3">
-              <Plus className="w-3.5 h-3.5" /> Add Rank
+              <Plus className="w-3.5 h-3.5" /> Add Resource
             </button>
           </div>
 
@@ -321,7 +342,6 @@ export default function CreateDuty() {
                   </div>
                 </div>
 
-                {/* Fix #2 — Live count mismatch warning */}
                 {hasCountMismatch && (
                   <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs text-red-600 dark:text-red-400">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
@@ -335,7 +355,6 @@ export default function CreateDuty() {
                   </div>
                 )}
 
-                {/* Fix #1 — Manual officer picker with search */}
                 {req.assignmentType === 'manual' && req.rankRef && (
                   <ManualOfficerPicker
                     rankId={req.rankRef}
@@ -349,18 +368,32 @@ export default function CreateDuty() {
           })}
         </div>
 
-        {/* Phone Numbers */}
+        {/* Phone Numbers — with info note */}
         <div className="card p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="section-title">Contact Numbers</h2>
-            <button type="button" onClick={addPhone} className="btn-secondary text-sm py-1.5 px-3">
+            <div>
+              <h2 className="section-title">Duty Info Numbers</h2>
+              <p className="text-xs text-ink-400 mt-0.5 flex items-center gap-1">
+                <Phone className="w-3 h-3" />
+                These numbers will receive duty information via WhatsApp when the duty is created, updated, or cancelled.
+              </p>
+            </div>
+            <button type="button" onClick={addPhone} className="btn-secondary text-sm py-1.5 px-3 shrink-0">
               <Plus className="w-3.5 h-3.5" /> Add
             </button>
           </div>
           {phoneNumbers.map((ph, i) => (
             <div key={i} className="flex gap-2">
-              <input className="input-field flex-1 text-sm" maxLength={10} placeholder="98XXXXXXXX"
-                value={ph} onChange={e => setPhone(i, e.target.value)} />
+              <div className="relative flex-1">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-400" />
+                <input
+                  className="input-field pl-9 text-sm"
+                  maxLength={13}
+                  placeholder="e.g. 9876543210"
+                  value={ph}
+                  onChange={e => setPhone(i, e.target.value)}
+                />
+              </div>
               {phoneNumbers.length > 1 && (
                 <button type="button" onClick={() => removePhone(i)}
                   className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500">
@@ -424,20 +457,15 @@ export default function CreateDuty() {
 }
 
 // ─── Manual Officer Picker ────────────────────────────────────────────────────
-// Fix #1: Shows searchable list of available officers for hand-picking.
-// Search is server-side so it works even with 100 000+ officers in the pool.
-
 function ManualOfficerPicker({ rankId, count, selectedIds, onToggle }) {
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  // 300 ms debounce — avoids hammering the API on every keystroke
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Reset search when rank changes (parent resets selectedIds too)
   useEffect(() => {
     setSearchInput('');
     setDebouncedSearch('');
@@ -451,7 +479,7 @@ function ManualOfficerPicker({ rankId, count, selectedIds, onToggle }) {
       return api.get(`/operator/officers/available?${params}`).then(r => r.data.data.officers);
     },
     enabled: !!rankId,
-    keepPreviousData: true,   // keep old list visible while new results load
+    keepPreviousData: true,
   });
 
   const isOverLimit = selectedIds.length > count;
@@ -459,7 +487,6 @@ function ManualOfficerPicker({ rankId, count, selectedIds, onToggle }) {
 
   return (
     <div className="bg-gray-50 dark:bg-gray-800/60 rounded-lg p-3 space-y-2">
-      {/* Header row */}
       <div className="flex items-center justify-between">
         <p className={`text-xs font-medium flex items-center gap-1.5 ${
           isOverLimit ? 'text-red-600 dark:text-red-400'
@@ -477,7 +504,6 @@ function ManualOfficerPicker({ rankId, count, selectedIds, onToggle }) {
         )}
       </div>
 
-      {/* Fix #1 — Search box */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
         <input
@@ -500,7 +526,6 @@ function ManualOfficerPicker({ rankId, count, selectedIds, onToggle }) {
         )}
       </div>
 
-      {/* Officer list */}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
           <div className="w-3 h-3 border border-primary-400 border-t-transparent rounded-full animate-spin" />

@@ -304,6 +304,15 @@ export default function DutyDetail() {
               </div>
             </div>
           )}
+          {duty.vehicleNumber && (
+            <div className="sm:col-span-2 flex items-start gap-2">
+              <FileText className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs text-ink-400">Vehicle Number</p>
+                <p className="text-sm text-ink-700 dark:text-ink-300">{duty.vehicleNumber}</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -173,8 +173,8 @@ export default function ManageOfficers() {
               <select className="input-field" value={form.rankId} onChange={f('rankId')} required>
                 <option value="">Select rank</option>
                 {ranks.map(r => (
-                  <option key={r._id} value={r._id} disabled={r.availableCount === 0 && modal === 'create'}>
-                    {r.code} — {r.name} ({r.availableCount} available)
+                  <option key={r._id} value={r._id} >
+                    {r.code} — {r.name} 
                   </option>
                 ))}
               </select>

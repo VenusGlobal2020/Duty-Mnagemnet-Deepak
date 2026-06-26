@@ -8,12 +8,14 @@ const assignedOfficerSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['assigned', 'accepted', 'rejected', 'replaced'],
-    default: 'accepted'   // default accepted as per requirement
+    default: 'accepted',
   },
   rejectionReason: { type: String },
   rejectedAt: { type: Date },
   replacedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Officer' },
   replacedAt: { type: Date },
+  // Track which SwapRequest caused this replacement (if any)
+  swapRequestRef: { type: mongoose.Schema.Types.ObjectId, ref: 'SwapRequest' },
 }, { _id: true });
 
 const dutySchema = new mongoose.Schema({
@@ -32,36 +34,46 @@ const dutySchema = new mongoose.Schema({
     // Only for special operator — enforced at controller level
   },
   description: { type: String, trim: true },
+
+  // Phone numbers to which duty info will be shared via WhatsApp
   phoneNumbers: [{ type: String }],
+
+  // Optional vehicle number for this duty
+  vehicleNumber: { type: String, trim: true, default: null },
+
   documents: [{
     url: String,
     publicId: String,
     originalName: String,
-    uploadedAt: { type: Date, default: Date.now }
+    uploadedAt: { type: Date, default: Date.now },
   }],
+
   // Rank requirements: [{ rankRef, count }]
   rankRequirements: [{
     rankRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Rank', required: true },
     count: { type: Number, required: true, min: 1 },
-    assignmentType: { type: String, enum: ['auto', 'manual'], default: 'auto' }
+    assignmentType: { type: String, enum: ['auto', 'manual'], default: 'auto' },
   }],
+
   // Assigned officers
   assignedOfficers: [assignedOfficerSchema],
-  // Status
-  // Lifecycle: draft (created, not yet started) -> active (between start/end) ->
-  // completed (past end time). cancelled is a manual terminal state from any point.
-  // The cron job in jobs/dutyStatusCron.js is what flips draft->active->completed
-  // automatically based on startDate/endDate; nothing else should silently change this.
+
+  // Status lifecycle:
+  //   draft → active (cron when startDate reached)
+  //   active → completed (cron when endDate reached)
+  //   any → cancelled (manual operator action)
   status: {
     type: String,
     enum: ['draft', 'active', 'completed', 'cancelled'],
-    default: 'draft'
+    default: 'draft',
   },
+
   // Hierarchy
   operatorRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   adminRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   superadminRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  // Timeline/audit
+
+  // Timeline/audit — every significant action lands here
   timeline: [{
     action: String,
     performedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

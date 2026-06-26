@@ -509,6 +509,171 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
     </table>
   </div>
 
+  <!-- Duty Location Map -->
+  ${duty.location?.lat && duty.location?.lng ? (() => {
+    const lat  = duty.location.lat;
+    const lng  = duty.location.lng;
+    const zoom = 15;
+
+    // Tile x,y from lat/lng
+    const tileX = Math.floor((lng + 180) / 360 * Math.pow(2, zoom));
+    const tileY = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
+
+    // 3x3 tile grid = 768x768 total
+    const tiles = [];
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        tiles.push({ x: tileX + dx, y: tileY + dy, col: dx + 1, row: dy + 1 });
+      }
+    }
+
+    // Sub-tile pixel offset of the exact lat/lng
+    const tileCount = Math.pow(2, zoom);
+    const fracX = (lng + 180) / 360 * tileCount - tileX;
+    const mercN = Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180));
+    const fracY = (1 - mercN / Math.PI) / 2 * tileCount - tileY;
+    const markerPxX = Math.round(1 * 256 + fracX * 256);
+    const markerPxY = Math.round(1 * 256 + fracY * 256);
+
+    const tileImgs = tiles.map(t =>
+      `<img src="https://tile.openstreetmap.org/${zoom}/${t.x}/${t.y}.png" style="position:absolute;left:${t.col*256}px;top:${t.row*256}px;width:256px;height:256px;" crossorigin="anonymous" />`
+    ).join('');
+
+    return `
+  <div style="margin-bottom:32px;page-break-inside:avoid;">
+    <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Duty Location Map</div>
+    <div style="border:2px solid #e2e8f0;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+      <div style="background:#1e3a5f;padding:12px 18px;display:flex;align-items:center;gap:10px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <span style="color:#fff;font-size:13px;font-weight:700;">${duty.dutyName}</span>
+        <span style="color:#94a3b8;font-size:12px;">— ${duty.locationName}</span>
+        <span style="color:#64748b;font-size:11px;margin-left:auto;">${lat}, ${lng}</span>
+      </div>
+      <div style="position:relative;width:100%;height:400px;overflow:hidden;background:#e8e0d8;">
+        <div id="tile-grid" style="position:absolute;width:768px;height:768px;display:none;">
+          ${tileImgs}
+        </div>
+        <canvas id="map-canvas" width="768" height="400" style="display:block;width:100%;height:400px;"></canvas>
+        <svg id="map-pin" viewBox="0 0 40 52" width="32" height="42"
+             style="position:absolute;left:${markerPxX}px;top:${markerPxY - 42}px;transform:translateX(-50%);filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4));pointer-events:none;display:none;">
+          <path d="M20 0C9 0 0 9 0 20c0 14 20 32 20 32s20-18 20-32C40 9 31 0 20 0z" fill="#dc2626"/>
+          <circle cx="20" cy="20" r="8" fill="#fff"/>
+          <circle cx="20" cy="20" r="4" fill="#dc2626"/>
+        </svg>
+        <div id="map-label" style="position:absolute;left:${markerPxX}px;top:${markerPxY + 2}px;transform:translateX(-50%);
+             background:rgba(30,58,95,0.92);color:#fff;font-size:11px;font-weight:700;
+             padding:3px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;display:none;">
+          ${duty.dutyName}
+        </div>
+      </div>
+      <div style="background:#f8fafc;padding:10px 18px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e2e8f0;">
+        <span style="font-size:11px;color:#64748b;"><strong>Coordinates:</strong> ${lat}, ${lng}</span>
+        <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}" target="_blank"
+           style="font-size:11px;color:#3b82f6;font-weight:600;text-decoration:none;">
+          Open in Google Maps &#8599;
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script class="no-print">
+  (function() {
+    var canvas = document.getElementById('map-canvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var W = 768, H = 400;
+    canvas.width = W; canvas.height = H;
+
+    var markerPxX = ${markerPxX};
+    var markerPxY = ${markerPxY};
+    var offsetY = Math.max(0, Math.min(768 - H, markerPxY - H / 2));
+    var offsetX = Math.max(0, Math.min(768 - W, markerPxX - W / 2));
+
+    var pinEl = document.getElementById('map-pin');
+    var lblEl = document.getElementById('map-label');
+
+    function positionOverlays() {
+      var px = markerPxX - offsetX;
+      var py = markerPxY - offsetY;
+      if (pinEl) { pinEl.style.left = px + 'px'; pinEl.style.top = (py - 42) + 'px'; pinEl.style.display = 'block'; }
+      if (lblEl) { lblEl.style.left = px + 'px'; lblEl.style.top = (py + 2) + 'px'; lblEl.style.display = 'block'; }
+    }
+
+    ctx.fillStyle = '#e8e0d8';
+    ctx.fillRect(0, 0, W, H);
+
+    var grid = document.getElementById('tile-grid');
+    var imgEls = grid.querySelectorAll('img');
+    var loaded = 0;
+    var images = [];
+
+    imgEls.forEach(function(el, i) {
+      var info = { left: parseInt(el.style.left), top: parseInt(el.style.top), img: null };
+      images.push(info);
+      var tmp = new Image();
+      tmp.crossOrigin = 'anonymous';
+      tmp.onload = function() {
+        info.img = tmp;
+        loaded++;
+        if (loaded === imgEls.length) {
+          images.forEach(function(t) {
+            if (t.img) ctx.drawImage(t.img, t.left - offsetX, t.top - offsetY, 256, 256);
+          });
+          positionOverlays();
+        }
+      };
+      tmp.onerror = function() {
+        loaded++;
+        if (loaded === imgEls.length) positionOverlays();
+      };
+      tmp.src = el.src;
+    });
+
+    function drawPinOnCanvas() {
+      var px = markerPxX - offsetX;
+      var py = markerPxY - offsetY;
+      // Redraw tiles first
+      images.forEach(function(t) {
+        if (t.img) ctx.drawImage(t.img, t.left - offsetX, t.top - offsetY, 256, 256);
+      });
+      // Pin body
+      ctx.beginPath();
+      ctx.arc(px, py - 14, 12, 0, 2 * Math.PI);
+      ctx.fillStyle = '#dc2626'; ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px, py - 14, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      // Stem
+      ctx.beginPath();
+      ctx.moveTo(px, py + 2);
+      ctx.lineTo(px - 7, py - 6);
+      ctx.lineTo(px + 7, py - 6);
+      ctx.closePath();
+      ctx.fillStyle = '#dc2626'; ctx.fill();
+      // Label
+      ctx.font = 'bold 12px Arial, sans-serif';
+      var text = '${duty.dutyName}';
+      var tw = ctx.measureText(text).width;
+      var lx = px - tw / 2 - 6, ly = py + 6;
+      ctx.fillStyle = 'rgba(30,58,95,0.92)';
+      ctx.fillRect(lx, ly, tw + 12, 20);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, lx + 6, ly + 14);
+      if (pinEl) pinEl.style.display = 'none';
+      if (lblEl) lblEl.style.display = 'none';
+    }
+
+    window.addEventListener('beforeprint', drawPinOnCanvas);
+    window.addEventListener('afterprint', positionOverlays);
+  })();
+  </script>
+`;
+  })() : `
+  <div style="margin-bottom:32px;border:1px solid #e2e8f0;border-radius:10px;padding:20px;text-align:center;background:#f8fafc;">
+    <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;">Duty Location Map</div>
+    <div style="color:#94a3b8;font-size:13px;">No coordinates available for this duty location.</div>
+  </div>`}
+
   <!-- Footer -->
   <div style="border-top:1px solid #e2e8f0;padding-top:16px;display:flex;justify-content:space-between;align-items:center;">
     <div style="font-size:11px;color:#94a3b8;">This is a system-generated report. No signature required.</div>
@@ -518,7 +683,17 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
   <!-- Auto-print trigger -->
   <script class="no-print">
     window.onload = function() {
-      setTimeout(function() { window.print(); }, 500);
+      var iframe = document.getElementById('duty-map-iframe');
+      if (iframe) {
+        var printed = false;
+        var doPrint = function() {
+          if (!printed) { printed = true; setTimeout(function() { window.print(); }, 300); }
+        };
+        iframe.addEventListener('load', doPrint);
+        setTimeout(doPrint, 3500);
+      } else {
+        setTimeout(function() { window.print(); }, 500);
+      }
     };
   </script>
 </body>
@@ -532,10 +707,44 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
   res.send(html);
 });
 
+// ─── OFFICER: GET ATTENDANCE HISTORY ─────────────────────────────────────────
+
+// @desc   Officer gets their own attendance history across all duties
+// @route  GET /api/officer/attendance/history
+// @access Officer
+const getAttendanceHistory = asyncHandler(async (req, res) => {
+  const officer = await Officer.findOne({ userRef: req.user._id });
+  if (!officer) return errorResponse(res, 404, 'Officer profile not found');
+
+  const page  = Math.max(1, parseInt(req.query.page)  || 1);
+  const limit = Math.min(50, parseInt(req.query.limit) || 10);
+  const skip  = (page - 1) * limit;
+
+  const [records, total] = await Promise.all([
+    Attendance.find({ officerRef: officer._id })
+      .sort({ checkedInAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('dutyRef', 'dutyName locationName startDate endDate status'),
+    Attendance.countDocuments({ officerRef: officer._id }),
+  ]);
+
+  return successResponse(res, 200, 'Attendance history fetched', {
+    records,
+    pagination: {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+    },
+  });
+});
+
 module.exports = {
   checkIn,
   checkOut,
   getMyAttendance,
   getDutyAttendance,
   exportAttendancePDF,
+  getAttendanceHistory,
 };

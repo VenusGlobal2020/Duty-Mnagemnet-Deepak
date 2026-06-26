@@ -197,7 +197,7 @@ const createDuty = asyncHandler(async (req, res) => {
   const {
     dutyName, locationName, lat, lng, startDate, endDate,
     priority, dutyType, description, phoneNumbers,
-    rankRequirements, manualAssignments
+    rankRequirements, manualAssignments,vehicleNumber
   } = req.body;
 
   if (!dutyName || !locationName || !lat || !lng || !startDate || !endDate || !priority) {
@@ -277,6 +277,7 @@ const createDuty = asyncHandler(async (req, res) => {
     operatorRef: req.user._id,
     adminRef: req.user.adminRef,
     superadminRef: admin.superadminRef,
+    vehicleNumber: vehicleNumber || null,
     // Always created as draft — the cron job (jobs/dutyStatusCron.js) flips
     // this to 'active' automatically once startDate is reached.
     status: 'draft',
@@ -417,7 +418,7 @@ const updateDuty = asyncHandler(async (req, res) => {
 
   const isSpecial = req.user.role === 'operator_special';
   const allowed = ['dutyName', 'locationName', 'lat', 'lng', 'startDate', 'endDate',
-    'priority', 'description', 'phoneNumbers', 'status'];
+    'priority', 'description', 'phoneNumbers', 'status',"vehicleNumber"];
   if (isSpecial) allowed.push('dutyType');
 
   const updateData = {};
