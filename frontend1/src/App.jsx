@@ -28,6 +28,7 @@ import SettingsPage from './pages/shared/SettingsPage';
 import NotFoundPage from './pages/shared/NotFoundPage';
 import NotificationsPage from './pages/shared/NotificationsPage';
 import ComingSoonPage from './pages/shared/ComingSoonPage';
+import MapView from './pages/shared/MapView';
 import LoadingSpinner from './components/common/LoadingSpinner';
 
 const ROLE_PATHS = {
@@ -63,6 +64,7 @@ function AppRoutes() {
         <Route path="ranks" element={<ManageRanks />} />
         <Route path="officers/bulk-upload" element={<BulkUploadOfficers />} />
         <Route path="officers" element={<MasterOfficers />} />
+        <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<ComingSoonPage />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
@@ -73,6 +75,7 @@ function AppRoutes() {
         <Route index element={<SuperadminDashboard />} />
         <Route path="admins" element={<SuperadminAdmins />} />
         <Route path="duties" element={<SuperadminDuties />} />
+        <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<ComingSoonPage />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
@@ -83,6 +86,7 @@ function AppRoutes() {
         <Route index element={<AdminDashboard />} />
         <Route path="operators" element={<AdminOperators />} />
         <Route path="duties" element={<AdminDuties />} />
+        <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<ComingSoonPage />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
@@ -95,6 +99,7 @@ function AppRoutes() {
         <Route path="duties" element={<ManageDuties />} />
         <Route path="duties/create" element={<CreateDuty />} />
         <Route path="duties/:dutyId" element={<DutyDetail />} />
+        <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<ComingSoonPage />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
@@ -106,6 +111,7 @@ function AppRoutes() {
         <Route index element={<OfficerDashboard />} />
         <Route path="duties" element={<OfficerDuties />} />
         <Route path="history" element={<OfficerHistory />} />
+        <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<ComingSoonPage />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />

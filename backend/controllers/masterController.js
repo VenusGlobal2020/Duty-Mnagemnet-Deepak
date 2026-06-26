@@ -3,6 +3,7 @@ const xlsx = require('xlsx');
 const User = require('../models/User');
 const Officer = require('../models/Officer');
 const Rank = require('../models/Rank');
+const Duty = require('../models/Duty');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 const { sendWelcomeMessage, notifyAccountSuspended } = require('../utils/whatsapp');
 const { createNotification } = require('../utils/notificationService');
@@ -99,6 +100,42 @@ const getAdminDetails = asyncHandler(async (req, res) => {
     .populate('userRef', 'name email status');
 
   return successResponse(res, 200, 'Admin details fetched', { admin, operators, officers });
+});
+
+// ─── MAP VIEW ─────────────────────────────────────────────────────────────────
+
+// @desc   Get duties for map view (no pagination, lean fields only)
+// @route  GET /api/master/duties/map
+const getDutiesForMap = asyncHandler(async (req, res) => {
+  const { adminId, operatorId, status } = req.query;
+  const query = {};
+  if (adminId) query.adminRef = adminId;
+  if (operatorId) query.operatorRef = operatorId;
+  if (status) query.status = status;
+
+  const duties = await Duty.find(query)
+    .select('dutyName locationName location status priority startDate endDate operatorRef adminRef assignedOfficers')
+    .populate('operatorRef', 'name role')
+    .populate('adminRef', 'name')
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
+
+  const slim = duties.map(d => ({
+    _id: d._id,
+    dutyName: d.dutyName,
+    locationName: d.locationName,
+    location: d.location,
+    status: d.status,
+    priority: d.priority,
+    startDate: d.startDate,
+    endDate: d.endDate,
+    operatorName: d.operatorRef?.name,
+    adminName: d.adminRef?.name,
+    officersCount: (d.assignedOfficers || []).filter(a => a.status !== 'replaced').length,
+  }));
+
+  return successResponse(res, 200, 'Duties fetched', { duties: slim });
 });
 
 // ─── SUSPEND / ACTIVATE ──────────────────────────────────────────────────────
@@ -325,5 +362,6 @@ module.exports = {
   createAdmin, getAdmins, getAdminDetails,
   suspendUser, activateUser,
   createRank, getRanks, updateRank, deleteRank,
-  bulkUploadOfficers, getAllOfficers
+  bulkUploadOfficers, getAllOfficers,
+  getDutiesForMap,
 };

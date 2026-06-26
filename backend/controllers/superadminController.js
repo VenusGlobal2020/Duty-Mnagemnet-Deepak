@@ -58,6 +58,54 @@ const getAllDuties = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Duties fetched', result);
 });
 
+// @desc   Get operators under a specific admin (lightweight, for dropdowns)
+// @route  GET /api/superadmin/admins/:adminId/operators
+const getOperatorsByAdmin = asyncHandler(async (req, res) => {
+  const admin = await User.findOne({ _id: req.params.adminId, superadminRef: req.user._id, role: 'admin' });
+  if (!admin) return errorResponse(res, 404, 'Admin not found');
+
+  const operators = await User.find({
+    adminRef: admin._id,
+    role: { $in: ['operator_special', 'operator_regular'] }
+  }).select('name role status');
+
+  return successResponse(res, 200, 'Operators fetched', { operators });
+});
+
+// @desc   Get duties for map view (no pagination, lean fields only)
+// @route  GET /api/superadmin/duties/map
+const getDutiesForMap = asyncHandler(async (req, res) => {
+  const { adminId, operatorId, status } = req.query;
+  const query = { superadminRef: req.user._id };
+  if (adminId) query.adminRef = adminId;
+  if (operatorId) query.operatorRef = operatorId;
+  if (status) query.status = status;
+
+  const duties = await Duty.find(query)
+    .select('dutyName locationName location status priority startDate endDate operatorRef adminRef assignedOfficers')
+    .populate('operatorRef', 'name role')
+    .populate('adminRef', 'name')
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
+
+  const slim = duties.map(d => ({
+    _id: d._id,
+    dutyName: d.dutyName,
+    locationName: d.locationName,
+    location: d.location,
+    status: d.status,
+    priority: d.priority,
+    startDate: d.startDate,
+    endDate: d.endDate,
+    operatorName: d.operatorRef?.name,
+    adminName: d.adminRef?.name,
+    officersCount: (d.assignedOfficers || []).filter(a => a.status !== 'replaced').length,
+  }));
+
+  return successResponse(res, 200, 'Duties fetched', { duties: slim });
+});
+
 // @desc   Get dashboard stats
 // @route  GET /api/superadmin/dashboard
 const getDashboardStats = asyncHandler(async (req, res) => {
@@ -76,4 +124,4 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getAdmins, getAdminDetails, getAllDuties, getDashboardStats };
+module.exports = { getAdmins, getAdminDetails, getAllDuties, getDashboardStats, getOperatorsByAdmin, getDutiesForMap };

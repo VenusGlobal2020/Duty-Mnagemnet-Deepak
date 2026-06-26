@@ -332,6 +332,34 @@ const getDuties = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Duties fetched', result);
 });
 
+// @desc   Get duties for map view (operator's own duties, lean fields only)
+// @route  GET /api/operator/duties/map
+const getDutiesForMap = asyncHandler(async (req, res) => {
+  const { status } = req.query;
+  const query = { operatorRef: req.user._id };
+  if (status) query.status = status;
+
+  const duties = await Duty.find(query)
+    .select('dutyName locationName location status priority startDate endDate assignedOfficers')
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
+
+  const slim = duties.map(d => ({
+    _id: d._id,
+    dutyName: d.dutyName,
+    locationName: d.locationName,
+    location: d.location,
+    status: d.status,
+    priority: d.priority,
+    startDate: d.startDate,
+    endDate: d.endDate,
+    officersCount: (d.assignedOfficers || []).filter(a => a.status !== 'replaced').length,
+  }));
+
+  return successResponse(res, 200, 'Duties fetched', { duties: slim });
+});
+
 // @desc   Get single duty
 // @route  GET /api/operator/duties/:dutyId
 const getDutyById = asyncHandler(async (req, res) => {
@@ -634,5 +662,6 @@ const getRankAvailability = asyncHandler(async (req, res) => {
 module.exports = {
   getOfficers, addOfficer, updateOfficer, deleteOfficer,
   createDuty, getDuties, getDutyById, updateDuty, cancelDuty,
-  replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank
+  replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank,
+  getDutiesForMap,
 };

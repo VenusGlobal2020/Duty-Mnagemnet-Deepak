@@ -95,6 +95,37 @@ const getDuties = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Duties fetched', result);
 });
 
+// @desc   Get duties for map view (no pagination, lean fields only)
+// @route  GET /api/admin/duties/map
+const getDutiesForMap = asyncHandler(async (req, res) => {
+  const { operatorId, status } = req.query;
+  const query = { adminRef: req.user._id };
+  if (operatorId) query.operatorRef = operatorId;
+  if (status) query.status = status;
+
+  const duties = await Duty.find(query)
+    .select('dutyName locationName location status priority startDate endDate operatorRef assignedOfficers')
+    .populate('operatorRef', 'name role')
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
+
+  const slim = duties.map(d => ({
+    _id: d._id,
+    dutyName: d.dutyName,
+    locationName: d.locationName,
+    location: d.location,
+    status: d.status,
+    priority: d.priority,
+    startDate: d.startDate,
+    endDate: d.endDate,
+    operatorName: d.operatorRef?.name,
+    officersCount: (d.assignedOfficers || []).filter(a => a.status !== 'replaced').length,
+  }));
+
+  return successResponse(res, 200, 'Duties fetched', { duties: slim });
+});
+
 // @desc   Dashboard stats
 // @route  GET /api/admin/dashboard
 const getDashboardStats = asyncHandler(async (req, res) => {
@@ -150,4 +181,4 @@ const getDutyById = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, mapsLink });
 });
 
-module.exports = { createOperator, getOperators, updateOperator, getDuties, getDashboardStats, getDutyById };
+module.exports = { createOperator, getOperators, updateOperator, getDuties, getDashboardStats, getDutyById, getDutiesForMap };

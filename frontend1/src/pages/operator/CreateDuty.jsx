@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Minus, MapPin, Upload, X, AlertTriangle, UserCheck, Search } from 'lucide-react';
+import { Plus, Minus, MapPin, Upload, X, AlertTriangle, UserCheck, Search, Map as MapIcon } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiError } from '../../utils/helpers';
+import LocationPickerMap from '../../components/common/LocationPickerMap';
 import toast from 'react-hot-toast';
 
 export default function CreateDuty() {
@@ -26,6 +27,7 @@ export default function CreateDuty() {
   const [files, setFiles] = useState([]);
   const [rankWarning, setRankWarning] = useState([]);
   const [manualWarning, setManualWarning] = useState([]);
+  const [mapPickerOpen, setMapPickerOpen] = useState(false);
 
   const { data: ranks = [] } = useQuery({
     queryKey: ['op-ranks'],
@@ -196,6 +198,16 @@ export default function CreateDuty() {
               <label className="form-label">Location Name *</label>
               <input className="input-field" placeholder="e.g. Prayagraj Collectorate"
                 value={form.locationName} onChange={f('locationName')} required />
+            </div>
+            <div className="sm:col-span-2 flex items-center justify-between -mb-1">
+              <label className="form-label !mb-0">Location Coordinates *</label>
+              <button
+                type="button"
+                onClick={() => setMapPickerOpen(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold text-signal2-600 dark:text-signal2-400 hover:underline"
+              >
+                <MapIcon className="w-3.5 h-3.5" /> Fetch from Map
+              </button>
             </div>
             <div>
               <label className="form-label">Latitude *</label>
@@ -396,6 +408,17 @@ export default function CreateDuty() {
           </button>
         </div>
       </form>
+
+      <LocationPickerMap
+        isOpen={mapPickerOpen}
+        onClose={() => setMapPickerOpen(false)}
+        initialLat={form.lat ? parseFloat(form.lat) : undefined}
+        initialLng={form.lng ? parseFloat(form.lng) : undefined}
+        onConfirm={({ lat, lng }) => {
+          setForm(p => ({ ...p, lat: lat.toFixed(6), lng: lng.toFixed(6) }));
+          toast.success('Location picked from map!');
+        }}
+      />
     </div>
   );
 }

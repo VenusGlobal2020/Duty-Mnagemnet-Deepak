@@ -7,6 +7,7 @@ const {
   getDuties,
   getDashboardStats,
   getDutyById,
+  getDutiesForMap,
 } = require('../controllers/adminController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -16,6 +17,7 @@ router.get('/dashboard', getDashboardStats);
 router.route('/operators').post(createOperator).get(getOperators);
 router.put('/operators/:operatorId', updateOperator);
 router.get('/duties', getDuties);
+router.get('/duties/map', getDutiesForMap);
 router.get('/duties/:dutyId', getDutyById);  // ← NEW: admin can view duty detail with attendance
 
 module.exports = router;

@@ -2,7 +2,7 @@ import BaseLayout from './BaseLayout';
 import {
   LayoutDashboard, Users, Shield, Star, Upload, UserCheck,
   ClipboardList, Settings, FileText, CalendarOff, Fingerprint,
-  ScrollText, Unlock,
+  ScrollText, Unlock, Map,
 } from 'lucide-react';
 
 const JAIL_RIHAI_URL = 'https://criminal-dossier.stpepl.com/login';
@@ -24,6 +24,7 @@ const masterNav = [
   { to: '/master/ranks', label: 'Manage Ranks', icon: Star },
   { to: '/master/officers/bulk-upload', label: 'Bulk Upload Officers', icon: Upload },
   { to: '/master/officers', end: true, label: 'All Officers', icon: UserCheck },
+  { to: '/master/map-view', label: 'Map View', icon: Map },
   ...extraNav('/master'),
   { to: '/master/settings', label: 'Settings', icon: Settings },
 ];
@@ -34,6 +35,7 @@ const superadminNav = [
   { to: '/superadmin', end: true, label: 'Dashboard', icon: LayoutDashboard },
   { to: '/superadmin/admins', label: 'Admins (ACP)', icon: Users },
   { to: '/superadmin/duties', label: 'All Duties', icon: ClipboardList },
+  { to: '/superadmin/map-view', label: 'Map View', icon: Map },
   ...extraNav('/superadmin'),
   { to: '/superadmin/settings', label: 'Settings', icon: Settings },
 ];
@@ -44,6 +46,7 @@ const adminNav = [
   { to: '/admin', end: true, label: 'Dashboard', icon: LayoutDashboard },
   { to: '/admin/operators', label: 'Operators', icon: Users },
   { to: '/admin/duties', label: 'All Duties', icon: ClipboardList },
+  { to: '/admin/map-view', label: 'Map View', icon: Map },
   ...extraNav('/admin'),
   { to: '/admin/settings', label: 'Settings', icon: Settings },
 ];
@@ -54,6 +57,7 @@ const operatorNav = [
   { to: '/operator', end: true, label: 'Dashboard', icon: LayoutDashboard },
   { to: '/operator/officers', label: 'Officers', icon: UserCheck },
   { to: '/operator/duties', label: 'Duties', icon: ClipboardList },
+  { to: '/operator/map-view', label: 'Map View', icon: Map },
   ...extraNav('/operator'),
   { to: '/operator/settings', label: 'Settings', icon: Settings },
 ];
@@ -64,6 +68,7 @@ const officerNav = [
   { to: '/officer', end: true, label: 'Dashboard', icon: LayoutDashboard },
   { to: '/officer/duties', label: 'My Duties', icon: ClipboardList },
   { to: '/officer/history', label: 'Duty History', icon: FileText },
+  { to: '/officer/map-view', label: 'Map View', icon: Map },
   ...extraNav('/officer'),
   { to: '/officer/settings', label: 'Settings', icon: Settings },
 ];
