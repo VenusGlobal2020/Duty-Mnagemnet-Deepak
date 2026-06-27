@@ -201,6 +201,39 @@ const notifySwapExecuted = async (phone, officerName, dutyName, location, startD
   }]);
 };
 
+/**
+ * swap_removed — sent to the OUTGOING officer in a 'move' swap, where they
+ * are taken off a duty but NOT placed on another one (the target officer
+ * was free, so it's a one-way handover, not a two-way exchange).
+ * Template params: {{1}} officer name, {{2}} duty name, {{3}} reason/note
+ */
+const notifySwapRemoved = async (phone, officerName, dutyName, note = '') => {
+  return sendWhatsAppTemplate(phone, 'swap_removed', [{
+    type: 'body',
+    parameters: [
+      { type: 'text', text: officerName },
+      { type: 'text', text: dutyName },
+      { type: 'text', text: note || 'You have been swapped out by the operator' },
+    ],
+  }]);
+};
+
+/**
+ * swap_cancelled — sent to the OPERATOR when an officer withdraws their own
+ * pending swap request before any decision was made.
+ * Template params: {{1}} operator name, {{2}} officer name, {{3}} duty name
+ */
+const notifySwapCancelled = async (phone, operatorName, officerName, dutyName) => {
+  return sendWhatsAppTemplate(phone, 'swap_cancelled', [{
+    type: 'body',
+    parameters: [
+      { type: 'text', text: operatorName },
+      { type: 'text', text: officerName },
+      { type: 'text', text: dutyName },
+    ],
+  }]);
+};
+
 module.exports = {
   sendWhatsAppTemplate,
   notifyDutyAssigned,
@@ -216,4 +249,6 @@ module.exports = {
   notifySwapAccepted,
   notifySwapRejected,
   notifySwapExecuted,
+  notifySwapRemoved,
+  notifySwapCancelled,
 };

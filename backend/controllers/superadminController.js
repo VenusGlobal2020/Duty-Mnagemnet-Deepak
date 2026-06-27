@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/User');
 const Officer = require('../models/Officer');
 const Duty = require('../models/Duty');
+const Attendance = require('../models/Attendance');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 
 // @desc   Get all admins under this superadmin
@@ -124,4 +125,49 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { getAdmins, getAdminDetails, getAllDuties, getDashboardStats, getOperatorsByAdmin, getDutiesForMap };
+// @desc   Get single duty detail with full info (superadmin view)
+// @route  GET /api/superadmin/duties/:dutyId
+const getDutyById = asyncHandler(async (req, res) => {
+  const duty = await Duty.findOne({ _id: req.params.dutyId, superadminRef: req.user._id })
+    .populate('assignedOfficers.officerRef', 'name phone badgeNumber')
+    .populate('assignedOfficers.rankRef', 'name code color')
+    .populate('assignedOfficers.replacedBy', 'name badgeNumber')
+    .populate('assignedOfficers.assignedBy', 'name role')
+    .populate('rankRequirements.rankRef', 'name code color')
+    .populate('operatorRef', 'name phone email role')
+    .populate('adminRef', 'name phone email')
+    .populate('superadminRef', 'name email')
+    .populate('timeline.performedBy', 'name role');
+
+  if (!duty) return errorResponse(res, 404, 'Duty not found');
+
+  const attendanceRecords = await Attendance.find({ dutyRef: duty._id })
+    .populate('officerRef', 'name badgeNumber phone')
+    .sort({ checkedInAt: 1 });
+
+  const attendanceMap = {};
+  for (const rec of attendanceRecords) {
+    if (rec.officerRef) {
+      attendanceMap[rec.officerRef._id.toString()] = {
+        _id: rec._id,
+        checkedInAt: rec.checkedInAt,
+        checkedOutAt: rec.checkedOutAt,
+        durationMinutes: rec.durationMinutes,
+        checkInDistanceMeters: rec.checkInDistanceMeters,
+        checkOutDistanceMeters: rec.checkOutDistanceMeters,
+        checkInLocation: rec.checkInLocation,
+        checkOutLocation: rec.checkOutLocation,
+        status: rec.status,
+        isWithinRadius: rec.isWithinRadius,
+      };
+    }
+  }
+
+  const mapsLink = duty.location?.lat && duty.location?.lng
+    ? `https://www.google.com/maps/dir/?api=1&destination=${duty.location.lat},${duty.location.lng}`
+    : null;
+
+  return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, mapsLink });
+});
+
+module.exports = { getAdmins, getAdminDetails, getAllDuties, getDashboardStats, getOperatorsByAdmin, getDutiesForMap, getDutyById };
