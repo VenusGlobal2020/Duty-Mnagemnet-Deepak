@@ -54,7 +54,19 @@ const swapRequestSchema = new mongoose.Schema({
     default: null,
   },
 
-  // ─── Reason / Notes ────────────────────────────────────────────────────────
+  // 'move'  — toOfficer was free (or this is a pre-start swap); fromOfficer's
+  //           slot on `duty` is simply handed to toOfficer.
+  // 'swap'  — toOfficer was actively assigned elsewhere on a live (draft/active)
+  //           duty; the two officers fully exchange duties (both assignedOfficers
+  //           arrays are updated). This is the only mode allowed when toOfficer
+  //           is currently busy.
+  mode: {
+    type: String,
+    enum: ['move', 'swap'],
+    required: true,
+    default: 'move',
+  },
+
   // Reason given by the requesting officer (required for officer-initiated)
   requestReason: {
     type: String,
@@ -63,6 +75,13 @@ const swapRequestSchema = new mongoose.Schema({
 
   // Operator's note when accepting or rejecting
   operatorNote: {
+    type: String,
+    trim: true,
+  },
+
+  // Why this request was auto-cancelled, if applicable (e.g. superseded by
+  // another swap that already moved this officer/assignment)
+  cancelReason: {
     type: String,
     trim: true,
   },
