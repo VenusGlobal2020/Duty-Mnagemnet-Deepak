@@ -68,7 +68,7 @@ const addOfficer = asyncHandler(async (req, res) => {
   const tempPassword = crypto.randomBytes(6).toString('hex');
 
   const user = await User.create({
-    name, email: email.toLowerCase(), phone, password: tempPassword,
+    name, email: email.toLowerCase(), phone, password: phone,
     gender, dateOfBirth, role: 'officer',
     adminRef: req.user.adminRef, superadminRef: admin.superadminRef,
     rankRef: rankId, badgeNumber, designation
