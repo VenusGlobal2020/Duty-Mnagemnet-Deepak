@@ -21,6 +21,7 @@ import ManageOfficers from './pages/operator/ManageOfficers';
 import ManageDuties from './pages/operator/ManageDuties';
 import CreateDuty from './pages/operator/CreateDuty';
 import DutyDetail from './pages/operator/DutyDetail';
+import OperatorSwapRequests from './pages/operator/OperatorSwapRequests';
 import OfficerDashboard from './pages/officer/OfficerDashboard';
 import OfficerDuties from './pages/officer/OfficerDuties';
 import OfficerHistory from './pages/officer/OfficerHistory';
@@ -99,6 +100,7 @@ function AppRoutes() {
         <Route path="duties" element={<ManageDuties />} />
         <Route path="duties/create" element={<CreateDuty />} />
         <Route path="duties/:dutyId" element={<DutyDetail />} />
+        <Route path="swap-requests" element={<OperatorSwapRequests />} />
         <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<ComingSoonPage />} />
         <Route path="attendance" element={<ComingSoonPage />} />

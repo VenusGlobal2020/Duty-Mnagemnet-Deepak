@@ -7,14 +7,19 @@ import Pagination from '../../components/common/Pagination';
 import toast from 'react-hot-toast';
 
 const TYPE_META = {
-  duty_assigned:     { icon: '📋', label: 'Duty Assigned',      color: 'bg-blue-50 dark:bg-blue-900/10' },
-  duty_updated:      { icon: '✏️',  label: 'Duty Updated',       color: 'bg-yellow-50 dark:bg-yellow-900/10' },
-  duty_cancelled:    { icon: '❌',  label: 'Duty Cancelled',     color: 'bg-red-50 dark:bg-red-900/10' },
-  duty_rejected:     { icon: '🚫', label: 'Officer Rejected',   color: 'bg-orange-50 dark:bg-orange-900/10' },
-  officer_replaced:  { icon: '🔄', label: 'Officer Replaced',   color: 'bg-purple-50 dark:bg-purple-900/10' },
-  account_suspended: { icon: '🔒', label: 'Account Suspended',  color: 'bg-red-50 dark:bg-red-900/10' },
-  account_activated: { icon: '✅', label: 'Account Activated',  color: 'bg-green-50 dark:bg-green-900/10' },
-  general:           { icon: '🔔', label: 'General',            color: '' },
+  duty_assigned:     { icon: '📋', label: 'Duty Assigned',       color: 'bg-blue-50 dark:bg-blue-900/10' },
+  duty_updated:      { icon: '✏️',  label: 'Duty Updated',        color: 'bg-yellow-50 dark:bg-yellow-900/10' },
+  duty_cancelled:    { icon: '❌',  label: 'Duty Cancelled',      color: 'bg-red-50 dark:bg-red-900/10' },
+  duty_rejected:     { icon: '🚫', label: 'Officer Rejected',    color: 'bg-orange-50 dark:bg-orange-900/10' },
+  officer_replaced:  { icon: '🔄', label: 'Officer Replaced',    color: 'bg-purple-50 dark:bg-purple-900/10' },
+  account_suspended: { icon: '🔒', label: 'Account Suspended',   color: 'bg-red-50 dark:bg-red-900/10' },
+  account_activated: { icon: '✅', label: 'Account Activated',   color: 'bg-green-50 dark:bg-green-900/10' },
+  swap_requested:    { icon: '🔃', label: 'Swap Requested',      color: 'bg-amber-50 dark:bg-amber-900/10' },
+  swap_accepted:     { icon: '✅', label: 'Swap Accepted',       color: 'bg-emerald-50 dark:bg-emerald-900/10' },
+  swap_rejected:     { icon: '❌', label: 'Swap Rejected',       color: 'bg-red-50 dark:bg-red-900/10' },
+  swap_cancelled:    { icon: '↩️', label: 'Swap Cancelled',      color: 'bg-gray-50 dark:bg-gray-900/10' },
+  officer_swapped:   { icon: '🔄', label: 'Officer Swapped',     color: 'bg-purple-50 dark:bg-purple-900/10' },
+  general:           { icon: '🔔', label: 'General',             color: '' },
 };
 
 export default function NotificationsPage() {

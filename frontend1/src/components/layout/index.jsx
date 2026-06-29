@@ -3,6 +3,7 @@ import {
   LayoutDashboard, Users, Shield, Star, Upload, UserCheck,
   ClipboardList, Settings, FileText, CalendarOff, Fingerprint,
   ScrollText, Unlock, Map,
+  ArrowLeftRight,
 } from 'lucide-react';
 
 const JAIL_RIHAI_URL = 'https://criminal-dossier.stpepl.com/login';
@@ -59,6 +60,7 @@ const operatorNav = [
   { to: '/operator/duties', label: 'Duties', icon: ClipboardList },
   { to: '/operator/map-view', label: 'Map View', icon: Map },
   ...extraNav('/operator'),
+  { to: '/operator/swap-requests', label: 'Swap Requests', icon: ArrowLeftRight },
   { to: '/operator/settings', label: 'Settings', icon: Settings },
 ];
 export function OperatorLayout() { return <BaseLayout navItems={operatorNav} />; }
