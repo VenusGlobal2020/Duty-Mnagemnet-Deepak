@@ -7,7 +7,7 @@ const assignedOfficerSchema = new mongoose.Schema({
   assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   status: {
     type: String,
-    enum: ['assigned', 'accepted', 'rejected', 'replaced'],
+    enum: ['assigned', 'accepted', 'rejected', 'replaced', 'removed'],
     default: 'accepted',
   },
   rejectionReason: { type: String },
@@ -33,7 +33,22 @@ const dutySchema = new mongoose.Schema({
     enum: ['VVIP', 'CITY-POINT', 'CRIMINAL'],
     // Only for special operator — enforced at controller level
   },
+  // Origin duty-type template used by a regular operator (optional — only
+  // set when the duty was created by picking a saved DutyType instead of
+  // manually entering rank requirements via "Other").
+  dutyTypeRef: { type: mongoose.Schema.Types.ObjectId, ref: 'DutyType', default: null },
   description: { type: String, trim: true },
+
+  // Dynamic shift definitions — only meaningful when the duty spans more than
+  // one calendar day. Fully operator-defined (e.g. "9 to 5", "5 to 10"); each
+  // officer's daily check-in is matched against whichever shift window covers
+  // the time they check in, and their attendance is tracked per calendar day
+  // (see Attendance model) so swaps mid-duty keep each officer's own days intact.
+  shifts: [{
+    label: { type: String, trim: true, required: true },  // e.g. "Morning Shift"
+    startTime: { type: String, required: true },          // "HH:mm", 24hr
+    endTime: { type: String, required: true },            // "HH:mm", 24hr — may be earlier than startTime for overnight shifts
+  }],
 
   // Phone numbers to which duty info will be shared via WhatsApp
   phoneNumbers: [{ type: String }],

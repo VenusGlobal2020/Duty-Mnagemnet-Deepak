@@ -21,6 +21,17 @@ const attendanceSchema = new mongoose.Schema({
   adminRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   superadminRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
+  // Calendar date (YYYY-MM-DD, server-local) this record belongs to. Multi-day
+  // duties get ONE attendance record per officer PER DAY, so if an officer is
+  // swapped out mid-duty their earlier days stay recorded under them and the
+  // incoming officer's check-ins from the swap date onward are their own
+  // separate records — nothing gets merged or overwritten.
+  date: { type: String, required: true },
+
+  // Which of the duty's defined shifts (if any) this check-in falls under —
+  // a label snapshot, since shifts can themselves be edited later.
+  shiftLabel: { type: String, default: null },
+
   // Check-in details
   checkedInAt: { type: Date },
   checkInLocation: {
@@ -61,7 +72,7 @@ const attendanceSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
-attendanceSchema.index({ dutyRef: 1, officerRef: 1 }, { unique: true });
+attendanceSchema.index({ dutyRef: 1, officerRef: 1, date: 1 }, { unique: true });
 attendanceSchema.index({ operatorRef: 1, checkedInAt: -1 });
 attendanceSchema.index({ adminRef: 1, checkedInAt: -1 });
 attendanceSchema.index({ officerRef: 1, checkedInAt: -1 });

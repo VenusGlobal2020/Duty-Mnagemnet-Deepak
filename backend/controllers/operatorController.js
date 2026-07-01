@@ -4,6 +4,8 @@ const Officer = require('../models/Officer');
 const Duty = require('../models/Duty');
 const Rank = require('../models/Rank');
 const Attendance = require('../models/Attendance');
+const DutyType = require('../models/DutyType');
+const SwapRequest = require('../models/SwapRequest');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 const { createNotification, bulkNotify } = require('../utils/notificationService');
 const { notifyDutyAssigned, notifyDutyCancelled, notifyDutyUpdated, notifyOfficerReplaced } = require('../utils/whatsapp');
@@ -197,7 +199,8 @@ const createDuty = asyncHandler(async (req, res) => {
   const {
     dutyName, locationName, lat, lng, startDate, endDate,
     priority, dutyType, description, phoneNumbers,
-    rankRequirements, manualAssignments,vehicleNumber
+    rankRequirements, manualAssignments, vehicleNumber,
+    dutyTypeRef, shifts,
   } = req.body;
 
   if (!dutyName || !locationName || !lat || !lng || !startDate || !endDate || !priority) {
@@ -214,8 +217,32 @@ const createDuty = asyncHandler(async (req, res) => {
 
   const admin = await User.findById(req.user.adminRef);
 
-  const parsedRequirements = typeof rankRequirements === 'string'
-    ? JSON.parse(rankRequirements) : rankRequirements || [];
+  // Regular operator picked a saved DutyType template instead of manually
+  // entering ranks — pull its rankRequirements in as a snapshot. If they
+  // instead chose "Other", rankRequirements comes straight from the body
+  // exactly like before, untouched.
+  let parsedRequirements;
+  let resolvedDutyTypeRef = null;
+  if (!isSpecial && dutyTypeRef) {
+    const template = await DutyType.findOne({ _id: dutyTypeRef, operatorRef: req.user._id, isActive: true });
+    if (!template) return errorResponse(res, 404, 'Selected duty type not found');
+    parsedRequirements = template.rankRequirements.map(r => ({
+      rankRef: r.rankRef, count: r.count, assignmentType: 'auto',
+    }));
+    resolvedDutyTypeRef = template._id;
+  } else {
+    parsedRequirements = typeof rankRequirements === 'string'
+      ? JSON.parse(rankRequirements) : rankRequirements || [];
+  }
+
+  // Shifts only make sense for multi-day duties, but we accept whatever the
+  // operator sends — fully dynamic, no fixed set of allowed shift times.
+  const parsedShifts = typeof shifts === 'string' ? JSON.parse(shifts) : shifts || [];
+  for (const s of parsedShifts) {
+    if (!s.label || !s.startTime || !s.endTime) {
+      return errorResponse(res, 400, 'Each shift needs a label, start time, and end time');
+    }
+  }
 
   // Document uploads handled separately by multer
   const documents = [];
@@ -271,6 +298,8 @@ const createDuty = asyncHandler(async (req, res) => {
     startDate: new Date(startDate), endDate: new Date(endDate),
     priority: parseInt(priority),
     ...(isSpecial && dutyType ? { dutyType } : {}),
+    ...(resolvedDutyTypeRef ? { dutyTypeRef: resolvedDutyTypeRef } : {}),
+    shifts: parsedShifts,
     description, phoneNumbers: parsedPhones,
     documents, rankRequirements: parsedRequirements,
     assignedOfficers: [...assigned, ...manualAssigned],
@@ -373,29 +402,40 @@ const getDutyById = asyncHandler(async (req, res) => {
     .populate('assignedOfficers.officerRef', 'name phone badgeNumber')
     .populate('assignedOfficers.rankRef', 'name code color')
     .populate('rankRequirements.rankRef', 'name code color')
+    .populate('dutyTypeRef', 'name')
     .populate('operatorRef', 'name')
     .populate('timeline.performedBy', 'name role');
 
   if (!duty) return errorResponse(res, 404, 'Duty not found');
 
-  // Attach attendance records so frontend can show attendance per officer
+  // Attach attendance records so frontend can show attendance per officer,
+  // grouped by calendar date since multi-day duties now track daily records.
   const attendanceRecords = await Attendance.find({ dutyRef: duty._id })
     .populate('officerRef', 'name badgeNumber')
-    .sort({ checkedInAt: 1 });
+    .sort({ date: 1, checkedInAt: 1 });
 
+  // attendanceMap: officerId -> today's/most-recent record (kept for
+  // backward compatibility with older frontend code paths)
   const attendanceMap = {};
+  // attendanceByDate: date -> officerId -> record (new, full daily picture)
+  const attendanceByDate = {};
   for (const rec of attendanceRecords) {
-    if (rec.officerRef) {
-      attendanceMap[rec.officerRef._id.toString()] = {
-        _id: rec._id,
-        checkedInAt: rec.checkedInAt,
-        checkedOutAt: rec.checkedOutAt,
-        durationMinutes: rec.durationMinutes,
-        checkInDistanceMeters: rec.checkInDistanceMeters,
-        status: rec.status,
-        isWithinRadius: rec.isWithinRadius,
-      };
-    }
+    if (!rec.officerRef) continue;
+    const officerId = rec.officerRef._id.toString();
+    const slim = {
+      _id: rec._id,
+      date: rec.date,
+      shiftLabel: rec.shiftLabel,
+      checkedInAt: rec.checkedInAt,
+      checkedOutAt: rec.checkedOutAt,
+      durationMinutes: rec.durationMinutes,
+      checkInDistanceMeters: rec.checkInDistanceMeters,
+      status: rec.status,
+      isWithinRadius: rec.isWithinRadius,
+    };
+    attendanceMap[officerId] = slim; // last one wins (records sorted by date asc)
+    if (!attendanceByDate[rec.date]) attendanceByDate[rec.date] = {};
+    attendanceByDate[rec.date][officerId] = slim;
   }
 
   // Google Maps link to duty location (useful for officers navigating to location)
@@ -403,7 +443,7 @@ const getDutyById = asyncHandler(async (req, res) => {
     ? `https://www.google.com/maps/dir/?api=1&destination=${duty.location.lat},${duty.location.lng}`
     : null;
 
-  return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, mapsLink });
+  return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, attendanceByDate, mapsLink });
 });
 
 // @desc   Update duty
@@ -411,14 +451,15 @@ const getDutyById = asyncHandler(async (req, res) => {
 const updateDuty = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
   if (!duty) return errorResponse(res, 404, 'Duty not found');
-  if (duty.status === 'cancelled') return errorResponse(res, 400, 'Cannot update cancelled duty');
-  if (new Date(duty.startDate) <= new Date()) {
-    return errorResponse(res, 400, 'Duty has already started — it can no longer be edited');
+  // Full editing freedom while the duty is live (draft or active) — only a
+  // duty that's already cancelled or fully completed can no longer be touched.
+  if (['cancelled', 'completed'].includes(duty.status)) {
+    return errorResponse(res, 400, `Cannot update a ${duty.status} duty`);
   }
 
   const isSpecial = req.user.role === 'operator_special';
   const allowed = ['dutyName', 'locationName', 'lat', 'lng', 'startDate', 'endDate',
-    'priority', 'description', 'phoneNumbers', 'status',"vehicleNumber"];
+    'priority', 'description', 'phoneNumbers', 'status', 'vehicleNumber'];
   if (isSpecial) allowed.push('dutyType');
 
   const updateData = {};
@@ -440,20 +481,171 @@ const updateDuty = asyncHandler(async (req, res) => {
     delete updateData.lat; delete updateData.lng;
   }
 
-  updateData.$push = { timeline: { action: 'DUTY_UPDATED', performedBy: req.user._id, note: 'Duty details updated' } };
+  // Shifts — fully replaceable at any time.
+  if (req.body.shifts !== undefined) {
+    const parsedShifts = typeof req.body.shifts === 'string' ? JSON.parse(req.body.shifts) : req.body.shifts;
+    for (const s of parsedShifts) {
+      if (!s.label || !s.startTime || !s.endTime) {
+        return errorResponse(res, 400, 'Each shift needs a label, start time, and end time');
+      }
+    }
+    updateData.shifts = parsedShifts;
+  }
 
-  const updated = await Duty.findByIdAndUpdate(duty._id, updateData, { new: true })
-    .populate('assignedOfficers.officerRef', 'name phone');
+  const timelineEntries = [{ action: 'DUTY_UPDATED', performedBy: req.user._id, note: 'Duty details updated' }];
+  const newlyAssignedForNotify = [];
+  const removedForNotify = [];
 
-  // Notify assigned officers
-  const changes = Object.keys(updateData).filter(k => k !== '$push').join(', ');
-  for (const ao of updated.assignedOfficers) {
-    if (ao.officerRef?.phone && ao.status !== 'rejected') {
-      await notifyDutyUpdated(ao.officerRef.phone, ao.officerRef.name, duty.dutyName, changes);
+  // Rank requirements — full freedom to raise or lower counts even after the
+  // duty has started. Raising a rank's count tries to auto-assign more
+  // officers immediately; lowering it frees up the most recently assigned
+  // officers on that rank (marked 'removed', not deleted, so history stays intact).
+  if (req.body.rankRequirements !== undefined) {
+    const parsedReqs = typeof req.body.rankRequirements === 'string'
+      ? JSON.parse(req.body.rankRequirements) : req.body.rankRequirements;
+
+    for (const r of parsedReqs) {
+      if (!r.rankRef || !r.count || r.count < 1) {
+        return errorResponse(res, 400, 'Each rank requirement needs a rank and a count of at least 1');
+      }
+    }
+
+    const busyIds = await getBusyOfficerIds(duty._id);
+
+    for (const req_ of parsedReqs) {
+      const targetCount = parseInt(req_.count);
+      const rankRef = req_.rankRef.toString();
+
+      const currentForRank = duty.assignedOfficers.filter(
+        a => a.rankRef.toString() === rankRef && ['assigned', 'accepted'].includes(a.status)
+      );
+      const currentCount = currentForRank.length;
+
+      if (targetCount > currentCount) {
+        const need = targetCount - currentCount;
+        const excludeIds = new Set([
+          ...duty.assignedOfficers
+            .filter(a => ['assigned', 'accepted'].includes(a.status))
+            .map(a => a.officerRef.toString()),
+          ...busyIds,
+        ]);
+        const available = await Officer.find({
+          adminRef: req.user.adminRef,
+          rankRef,
+          status: 'active',
+          _id: { $nin: Array.from(excludeIds) },
+        }).select('_id name phone userRef').limit(need);
+
+        for (const officer of available) {
+          duty.assignedOfficers.push({
+            officerRef: officer._id,
+            rankRef,
+            status: 'accepted',
+            assignedBy: req.user._id,
+          });
+          newlyAssignedForNotify.push(officer);
+        }
+        if (available.length < need) {
+          const rank = await Rank.findById(rankRef).select('name');
+          timelineEntries.push({
+            action: 'RANK_REQUIREMENT_INCREASED',
+            performedBy: req.user._id,
+            note: `${rank?.name || 'Rank'} increased to ${targetCount}, but only ${available.length}/${need} additional officer(s) were available`,
+          });
+        }
+      } else if (targetCount < currentCount) {
+        const excess = currentCount - targetCount;
+        // Remove the most recently assigned first
+        const toRemove = [...currentForRank]
+          .sort((a, b) => new Date(b.assignedAt) - new Date(a.assignedAt))
+          .slice(0, excess);
+        for (const assignment of toRemove) {
+          const officer = await Officer.findById(assignment.officerRef).select('name phone userRef');
+          assignment.status = 'removed';
+          if (officer) removedForNotify.push(officer);
+        }
+      }
+
+      // Sync the requirement's target count on the duty record itself
+      const existingReqEntry = duty.rankRequirements.find(rr => rr.rankRef.toString() === rankRef);
+      if (existingReqEntry) existingReqEntry.count = targetCount;
+      else duty.rankRequirements.push({ rankRef, count: targetCount, assignmentType: 'auto' });
+    }
+
+    timelineEntries.push({ action: 'RANK_REQUIREMENTS_UPDATED', performedBy: req.user._id, note: 'Rank requirements adjusted' });
+  }
+
+  updateData.timeline = [...duty.timeline, ...timelineEntries];
+
+  // Apply the simple field updates first, then persist the rankRequirements/
+  // assignedOfficers array mutations made above via duty.save().
+  Object.assign(duty, updateData);
+  await duty.save();
+
+  const updated = await Duty.findById(duty._id)
+    .populate('assignedOfficers.officerRef', 'name phone')
+    .populate('assignedOfficers.rankRef', 'name')
+    .populate('rankRequirements.rankRef', 'name code color');
+
+  // Notify assigned officers about general duty changes
+  const changes = Object.keys(updateData).filter(k => k !== 'timeline').join(', ');
+  if (changes) {
+    for (const ao of updated.assignedOfficers) {
+      if (ao.officerRef?.phone && ao.status !== 'rejected' && ao.status !== 'removed') {
+        await notifyDutyUpdated(ao.officerRef.phone, ao.officerRef.name, duty.dutyName, changes);
+      }
+    }
+  }
+
+  // Notify newly-assigned officers (rank count increase)
+  for (const officer of newlyAssignedForNotify) {
+    if (officer.phone) {
+      await notifyOfficerReplaced(officer.phone, officer.name, duty.dutyName, 'Assigned — additional officers requested by operator');
+    }
+    if (officer.userRef) {
+      await createNotification({
+        recipientId: officer.userRef,
+        title: 'New Duty Assigned',
+        body: `You have been assigned to duty: ${duty.dutyName} at ${duty.locationName}`,
+        type: 'duty_assigned', relatedDuty: duty._id, sendPush: false,
+      });
+    }
+  }
+
+  // Notify removed officers (rank count decrease)
+  for (const officer of removedForNotify) {
+    if (officer.userRef) {
+      await createNotification({
+        recipientId: officer.userRef,
+        title: 'Removed from Duty',
+        body: `You have been removed from duty: ${duty.dutyName} — the operator reduced the required officer count.`,
+        type: 'duty_updated', relatedDuty: duty._id, sendPush: false,
+      });
     }
   }
 
   return successResponse(res, 200, 'Duty updated', { duty: updated });
+});
+
+// @desc   Permanently delete a duty — requires the operator's account password
+//         as confirmation. If the password is wrong, nothing is deleted.
+// @route  DELETE /api/operator/duties/:dutyId
+const deleteDuty = asyncHandler(async (req, res) => {
+  const { password } = req.body;
+  if (!password) return errorResponse(res, 400, 'Password is required to delete a duty');
+
+  const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
+  if (!duty) return errorResponse(res, 404, 'Duty not found');
+
+  const userWithPassword = await User.findById(req.user._id).select('+password');
+  const isMatch = await userWithPassword.matchPassword(password);
+  if (!isMatch) return errorResponse(res, 401, 'Incorrect password — duty was not deleted');
+
+  await Attendance.deleteMany({ dutyRef: duty._id });
+  await SwapRequest.deleteMany({ duty: duty._id });
+  await Duty.findByIdAndDelete(duty._id);
+
+  return successResponse(res, 200, 'Duty permanently deleted');
 });
 
 // @desc   Cancel duty
@@ -486,8 +678,8 @@ const cancelDuty = asyncHandler(async (req, res) => {
 const replaceOfficer = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
   if (!duty) return errorResponse(res, 404, 'Duty not found');
-  if (new Date(duty.startDate) <= new Date()) {
-    return errorResponse(res, 400, 'Duty has already started — officers can no longer be changed');
+  if (['cancelled', 'completed'].includes(duty.status)) {
+    return errorResponse(res, 400, `Cannot change officers on a ${duty.status} duty`);
   }
 
   const assignment = duty.assignedOfficers.id(req.params.assignmentId);
@@ -551,9 +743,6 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
   if (!duty) return errorResponse(res, 404, 'Duty not found');
   if (!['draft', 'active'].includes(duty.status)) return errorResponse(res, 400, 'Only draft or active duties can be edited');
-  if (new Date(duty.startDate) <= new Date()) {
-    return errorResponse(res, 400, 'Duty has already started — officers can no longer be changed');
-  }
 
   const assignment = duty.assignedOfficers.id(req.params.assignmentId);
   if (!assignment) return errorResponse(res, 404, 'Assignment not found');
@@ -667,7 +856,7 @@ const getRankAvailability = asyncHandler(async (req, res) => {
 
 module.exports = {
   getOfficers, addOfficer, updateOfficer, deleteOfficer,
-  createDuty, getDuties, getDutyById, updateDuty, cancelDuty,
+  createDuty, getDuties, getDutyById, updateDuty, cancelDuty, deleteDuty,
   replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank,
   getDutiesForMap,
 };

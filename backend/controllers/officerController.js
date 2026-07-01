@@ -33,11 +33,18 @@ const getActiveDuties = asyncHandler(async (req, res) => {
     .populate('operatorRef', 'name phone')
     .sort({ startDate: 1 });
 
-  // Fetch attendance records for all these duties at once
+  // Fetch TODAY's attendance record for each duty — multi-day duties now have
+  // one attendance record per officer per calendar day, so "have I checked in"
+  // on this list always means "today", not any day in the duty's history.
   const dutyIds = duties.map((d) => d._id);
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
   const attendanceRecords = await Attendance.find({
     dutyRef: { $in: dutyIds },
     officerRef: officer._id,
+    date: todayStr,
   });
 
   const attendanceByDuty = {};
@@ -197,11 +204,16 @@ const getDutyDetails = asyncHandler(async (req, res) => {
 
   if (!duty) return errorResponse(res, 404, 'Duty not found');
 
-  // Officer's attendance record for this duty
-  const myAttendance = await Attendance.findOne({
-    dutyRef: duty._id,
-    officerRef: officer._id,
-  });
+  // Officer's attendance for this duty — today's record (for check-in/out
+  // actions) plus the full daily history (for multi-day duties).
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const [myAttendance, dailyRecords] = await Promise.all([
+    Attendance.findOne({ dutyRef: duty._id, officerRef: officer._id, date: todayStr }),
+    Attendance.find({ dutyRef: duty._id, officerRef: officer._id }).sort({ date: 1 }),
+  ]);
 
   // Google Maps navigation link to duty location
   const mapsLink = duty.location?.lat && duty.location?.lng
@@ -214,6 +226,8 @@ const getDutyDetails = asyncHandler(async (req, res) => {
     attendance: myAttendance
       ? {
           _id: myAttendance._id,
+          date: myAttendance.date,
+          shiftLabel: myAttendance.shiftLabel,
           checkedInAt: myAttendance.checkedInAt,
           checkedOutAt: myAttendance.checkedOutAt,
           durationMinutes: myAttendance.durationMinutes,
@@ -222,6 +236,7 @@ const getDutyDetails = asyncHandler(async (req, res) => {
           isWithinRadius: myAttendance.isWithinRadius,
         }
       : null,
+    dailyRecords,
     hasCheckedIn: !!(myAttendance?.checkedInAt),
     hasCheckedOut: !!(myAttendance?.checkedOutAt),
   });

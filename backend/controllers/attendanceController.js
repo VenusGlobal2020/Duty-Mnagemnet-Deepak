@@ -24,6 +24,42 @@ const getDistanceMeters = (lat1, lng1, lat2, lng2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+// Calendar date string (server-local, YYYY-MM-DD) used to key one attendance
+// record per officer per day — this is what lets multi-day duties track
+// daily check-in/check-out, and keeps a swapped-out officer's earlier days
+// intact under their own name while the incoming officer gets their own
+// fresh records from the swap date onward.
+const getDateStr = (d = new Date()) => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// Given a duty's dynamic shift list, find whichever shift window covers the
+// current time-of-day (handles overnight shifts where endTime < startTime,
+// e.g. "22:00" -> "06:00"). Returns the shift label, or null if the duty has
+// no shifts defined (single-day / non-shift duty) or none currently match.
+const matchShift = (shifts, at = new Date()) => {
+  if (!shifts || shifts.length === 0) return null;
+  const nowMinutes = at.getHours() * 60 + at.getMinutes();
+  const toMinutes = (hhmm) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return h * 60 + m;
+  };
+  for (const shift of shifts) {
+    const start = toMinutes(shift.startTime);
+    const end = toMinutes(shift.endTime);
+    if (start <= end) {
+      if (nowMinutes >= start && nowMinutes <= end) return shift.label;
+    } else {
+      // overnight shift wraps past midnight
+      if (nowMinutes >= start || nowMinutes <= end) return shift.label;
+    }
+  }
+  return shifts[0].label; // fallback: no exact match, tag with the first defined shift
+};
+
 // ─── OFFICER: CHECK-IN ────────────────────────────────────────────────────────
 
 // @desc   Officer checks in to a duty (must be within 1km of duty location)
@@ -63,10 +99,11 @@ const checkIn = asyncHandler(async (req, res) => {
     return errorResponse(res, 404, 'Active duty assignment not found');
   }
 
-  // Check if already checked in
-  const existing = await Attendance.findOne({ dutyRef: dutyId, officerRef: officer._id });
+  // Check if already checked in today (multi-day duties get one record PER DAY)
+  const today = getDateStr();
+  const existing = await Attendance.findOne({ dutyRef: dutyId, officerRef: officer._id, date: today });
   if (existing && existing.checkedInAt) {
-    return errorResponse(res, 409, 'You have already checked in to this duty');
+    return errorResponse(res, 409, 'You have already checked in today for this duty');
   }
 
   // Calculate distance from duty location
@@ -85,8 +122,9 @@ const checkIn = asyncHandler(async (req, res) => {
     );
   }
 
-  // Create or update attendance record
+  // Create or update today's attendance record
   const now = new Date();
+  const shiftLabel = matchShift(duty.shifts, now);
   const attendanceData = {
     dutyRef: duty._id,
     officerRef: officer._id,
@@ -94,6 +132,8 @@ const checkIn = asyncHandler(async (req, res) => {
     operatorRef: duty.operatorRef,
     adminRef: duty.adminRef,
     superadminRef: duty.superadminRef,
+    date: today,
+    shiftLabel,
     checkedInAt: now,
     checkInLocation: { lat: officerLat, lng: officerLng },
     checkInDistanceMeters: Math.round(distanceMeters),
@@ -110,7 +150,7 @@ const checkIn = asyncHandler(async (req, res) => {
   };
 
   const attendance = await Attendance.findOneAndUpdate(
-    { dutyRef: duty._id, officerRef: officer._id },
+    { dutyRef: duty._id, officerRef: officer._id, date: today },
     attendanceData,
     { upsert: true, new: true }
   );
@@ -118,6 +158,8 @@ const checkIn = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Check-in successful', {
     attendance: {
       _id: attendance._id,
+      date: attendance.date,
+      shiftLabel: attendance.shiftLabel,
       checkedInAt: attendance.checkedInAt,
       checkInDistanceMeters: attendance.checkInDistanceMeters,
       dutyName: duty.dutyName,
@@ -139,17 +181,19 @@ const checkOut = asyncHandler(async (req, res) => {
   const officer = await Officer.findOne({ userRef: req.user._id });
   if (!officer) return errorResponse(res, 404, 'Officer profile not found');
 
+  const today = getDateStr();
   const attendance = await Attendance.findOne({
     dutyRef: dutyId,
     officerRef: officer._id,
+    date: today,
   });
 
   if (!attendance || !attendance.checkedInAt) {
-    return errorResponse(res, 400, 'You have not checked in to this duty yet');
+    return errorResponse(res, 400, 'You have not checked in today for this duty yet');
   }
 
   if (attendance.checkedOutAt) {
-    return errorResponse(res, 409, 'You have already checked out of this duty');
+    return errorResponse(res, 409, 'You have already checked out for today');
   }
 
   const now = new Date();
@@ -195,15 +239,17 @@ const getMyAttendance = asyncHandler(async (req, res) => {
   const officer = await Officer.findOne({ userRef: req.user._id });
   if (!officer) return errorResponse(res, 404, 'Officer profile not found');
 
-  const attendance = await Attendance.findOne({
-    dutyRef: req.params.dutyId,
-    officerRef: officer._id,
-  });
+  const today = getDateStr();
+  const [todayRecord, allRecords] = await Promise.all([
+    Attendance.findOne({ dutyRef: req.params.dutyId, officerRef: officer._id, date: today }),
+    Attendance.find({ dutyRef: req.params.dutyId, officerRef: officer._id }).sort({ date: 1 }),
+  ]);
 
   return successResponse(res, 200, 'Attendance fetched', {
-    attendance: attendance || null,
-    hasCheckedIn: !!(attendance?.checkedInAt),
-    hasCheckedOut: !!(attendance?.checkedOutAt),
+    attendance: todayRecord || null,
+    dailyRecords: allRecords,
+    hasCheckedIn: !!(todayRecord?.checkedInAt),
+    hasCheckedOut: !!(todayRecord?.checkedOutAt),
   });
 });
 
@@ -235,15 +281,32 @@ const getDutyAttendance = asyncHandler(async (req, res) => {
 
   if (!duty) return errorResponse(res, 404, 'Duty not found or access denied');
 
-  // Fetch attendance records for this duty
+  // Fetch attendance records for this duty (now potentially many per officer —
+  // one per calendar day for multi-day duties)
   const attendanceRecords = await Attendance.find({ dutyRef: dutyId })
     .populate('officerRef', 'name phone badgeNumber')
-    .sort({ checkedInAt: 1 });
+    .sort({ date: 1, checkedInAt: 1 });
 
-  // Build a map of officerRef -> attendance
+  // Build a map of officerRef -> most recent day's attendance (kept for the
+  // "current status" summary below) plus a full date -> officerRef -> record
+  // breakdown for daily views.
   const attendanceMap = {};
+  const attendanceByDate = {};
   for (const record of attendanceRecords) {
-    attendanceMap[record.officerRef._id.toString()] = record;
+    if (!record.officerRef) continue;
+    const officerId = record.officerRef._id.toString();
+    attendanceMap[officerId] = record; // last one wins — records sorted by date asc
+    if (!attendanceByDate[record.date]) attendanceByDate[record.date] = {};
+    attendanceByDate[record.date][officerId] = {
+      _id: record._id,
+      shiftLabel: record.shiftLabel,
+      checkedInAt: record.checkedInAt,
+      checkedOutAt: record.checkedOutAt,
+      durationMinutes: record.durationMinutes,
+      checkInDistanceMeters: record.checkInDistanceMeters,
+      status: record.status,
+      isWithinRadius: record.isWithinRadius,
+    };
   }
 
   // Merge assignment data with attendance data
@@ -292,9 +355,11 @@ const getDutyAttendance = asyncHandler(async (req, res) => {
       startDate: duty.startDate,
       endDate: duty.endDate,
       status: duty.status,
+      shifts: duty.shifts,
     },
     summary,
     stats,
+    attendanceByDate,
   });
 });
 

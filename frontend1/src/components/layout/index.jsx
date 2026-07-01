@@ -2,7 +2,7 @@ import BaseLayout from './BaseLayout';
 import {
   LayoutDashboard, Users, Shield, Star, Upload, UserCheck,
   ClipboardList, Settings, FileText, CalendarOff, Fingerprint,
-  ScrollText, Unlock, Map,
+  ScrollText, Unlock, Map, Layers,
   ArrowLeftRight,
 } from 'lucide-react';
 
@@ -58,6 +58,7 @@ const operatorNav = [
   { to: '/operator', end: true, label: 'डैशबोर्ड', icon: LayoutDashboard },
   { to: '/operator/officers', label: 'अधिकारी', icon: UserCheck },
   { to: '/operator/duties', label: 'ड्यूटी', icon: ClipboardList },
+  { to: '/operator/duty-types', label: 'ड्यूटी प्रकार', icon: Layers },
   { to: '/operator/map-view', label: 'मानचित्र दृश्य', icon: Map },
   ...extraNav('/operator'),
   { to: '/operator/swap-requests', label: 'स्वैप अनुरोध', icon: ArrowLeftRight },

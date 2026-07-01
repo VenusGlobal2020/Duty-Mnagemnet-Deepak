@@ -2,10 +2,13 @@ const express = require('express');
 const router = express.Router();
 const {
   getOfficers, addOfficer, updateOfficer, deleteOfficer,
-  createDuty, getDuties, getDutyById, updateDuty, cancelDuty,
+  createDuty, getDuties, getDutyById, updateDuty, cancelDuty, deleteDuty,
   replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank,
   getDutiesForMap,
 } = require('../controllers/operatorController');
+const {
+  createDutyType, getDutyTypes, updateDutyType, deleteDutyType,
+} = require('../controllers/dutyTypeController');
 const {
   getSwapRequests, getSwapHistoryForDuty, getSwapCandidates, acceptSwapRequest, rejectSwapRequest, forceSwap,
 } = require('../controllers/swapController');
@@ -21,13 +24,17 @@ router.get('/officers/available', getAvailableOfficersByRank);
 router.route('/officers').get(getOfficers).post(addOfficer);
 router.route('/officers/:officerId').put(updateOfficer).delete(deleteOfficer);
 
+// Duty Types (regular operator only — enforced in the controller)
+router.route('/duty-types').get(getDutyTypes).post(createDutyType);
+router.route('/duty-types/:dutyTypeId').put(updateDutyType).delete(deleteDutyType);
+
 // Duties
 // NOTE: '/duties/map' must be declared before '/duties/:dutyId' for the same reason.
 router.route('/duties')
   .get(getDuties)
   .post(uploadDutyDoc.array('documents', 5), createDuty);
 router.get('/duties/map', getDutiesForMap);
-router.route('/duties/:dutyId').get(getDutyById).put(updateDuty);
+router.route('/duties/:dutyId').get(getDutyById).put(updateDuty).delete(deleteDuty);
 router.patch('/duties/:dutyId/cancel', cancelDuty);
 router.patch('/duties/:dutyId/replace/:assignmentId', replaceOfficer);
 router.patch('/duties/:dutyId/assignments/:assignmentId/manual-replace', manualReplaceOfficer);

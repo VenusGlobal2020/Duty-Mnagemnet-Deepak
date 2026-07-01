@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Minus, MapPin, Upload, X, AlertTriangle, UserCheck, Search, Map as MapIcon, Car, Phone } from 'lucide-react';
+import { Plus, Minus, MapPin, Upload, X, AlertTriangle, UserCheck, Search, Map as MapIcon, Car, Phone, Clock, Layers } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiError } from '../../utils/helpers';
 import LocationPickerMap from '../../components/common/LocationPickerMap';
 import toast from 'react-hot-toast';
+
+const OTHER = '__other__';
 
 export default function CreateDuty() {
   const { user } = useAuth();
@@ -29,7 +31,42 @@ export default function CreateDuty() {
   const [rankWarning, setRankWarning] = useState([]);
   const [manualWarning, setManualWarning] = useState([]);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
-  
+
+  // ── Duty type template (regular operator only) ──
+  const [selectedDutyType, setSelectedDutyType] = useState(OTHER);
+
+  const { data: dutyTypes = [] } = useQuery({
+    queryKey: ['op-duty-types'],
+    queryFn: () => api.get('/operator/duty-types').then(r => r.data.data.dutyTypes),
+    enabled: !isSpecial,
+  });
+
+  // ── Dynamic shifts — only relevant when the duty spans more than one day ──
+  const [shifts, setShifts] = useState([]);
+  const isMultiDay = (() => {
+    if (!form.startDate || !form.endDate) return false;
+    const start = new Date(form.startDate);
+    const end = new Date(form.endDate);
+    return (end - start) > 24 * 60 * 60 * 1000;
+  })();
+
+  const addShift = () => setShifts(s => [...s, { label: '', startTime: '09:00', endTime: '17:00' }]);
+  const removeShift = (i) => setShifts(s => s.filter((_, idx) => idx !== i));
+  const setShift = (i, key, val) => setShifts(s => s.map((sh, idx) => idx === i ? { ...sh, [key]: val } : sh));
+
+  const handleDutyTypeChange = (dutyTypeId) => {
+    setSelectedDutyType(dutyTypeId);
+    if (dutyTypeId === OTHER) {
+      setRankRequirements([{ rankRef: '', count: 1, assignmentType: 'auto', manualOfficerIds: [] }]);
+      return;
+    }
+    const template = dutyTypes.find(dt => dt._id === dutyTypeId);
+    if (template) {
+      setRankRequirements(template.rankRequirements.map(r => ({
+        rankRef: r.rankRef?._id || r.rankRef, count: r.count, assignmentType: 'auto', manualOfficerIds: [],
+      })));
+    }
+  };
 
   const { data: ranks = [] } = useQuery({
     queryKey: ['op-ranks'],
@@ -91,6 +128,14 @@ export default function CreateDuty() {
       toast.error('Vehicle number format is invalid'); return;
     }
 
+    if (isMultiDay) {
+      for (const s of shifts) {
+        if (!s.label || !s.startTime || !s.endTime) {
+          toast.error('Fill in label, start time, and end time for every shift, or remove empty rows'); return;
+        }
+      }
+    }
+
     const manualAssignments = validRanks
       .filter(r => r.assignmentType === 'manual')
       .flatMap(r => r.manualOfficerIds.map(officerId => ({ officerId, rankRef: r.rankRef })));
@@ -98,7 +143,16 @@ export default function CreateDuty() {
     const fd = new FormData();
     Object.entries(form).forEach(([k, v]) => { if (v) fd.append(k, v); });
     fd.append('phoneNumbers', JSON.stringify(phoneNumbers.filter(Boolean)));
-    fd.append('rankRequirements', JSON.stringify(validRanks.map(({ manualOfficerIds, ...rest }) => rest)));
+    // "Other" means manual rank entry, exactly like before. A selected
+    // template just tells the backend which DutyType to snapshot from.
+    if (!isSpecial && selectedDutyType !== OTHER) {
+      fd.append('dutyTypeRef', selectedDutyType);
+    } else {
+      fd.append('rankRequirements', JSON.stringify(validRanks.map(({ manualOfficerIds, ...rest }) => rest)));
+    }
+    if (isMultiDay && shifts.length > 0) {
+      fd.append('shifts', JSON.stringify(shifts));
+    }
     if (manualAssignments.length > 0) {
       fd.append('manualAssignments', JSON.stringify(manualAssignments));
     }
@@ -284,6 +338,55 @@ export default function CreateDuty() {
           </div>
         </div>
 
+        {/* Shifts — only for multi-day duties */}
+        {isMultiDay && (
+          <div className="card p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="section-title flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-primary-600" /> Shifts (multi-day duty)
+                </h2>
+                <p className="text-xs text-ink-400 mt-0.5">
+                  This duty spans more than one day. Define the shift(s) officers will check in/out against — fully your call, e.g. "9 to 5", "5 to 10".
+                </p>
+              </div>
+              <button type="button" onClick={addShift} className="btn-secondary text-sm py-1.5 px-3 shrink-0">
+                <Plus className="w-3.5 h-3.5" /> Add Shift
+              </button>
+            </div>
+            {shifts.length === 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                No shifts defined yet — officers will check in without a specific shift tag. Add one or more shifts above if you want daily attendance split by shift.
+              </p>
+            )}
+            {shifts.map((s, i) => (
+              <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-5">
+                  <label className="form-label text-xs">Label</label>
+                  <input className="input-field text-sm" placeholder="e.g. Morning Shift"
+                    value={s.label} onChange={e => setShift(i, 'label', e.target.value)} />
+                </div>
+                <div className="col-span-3">
+                  <label className="form-label text-xs">Start</label>
+                  <input type="time" className="input-field text-sm" value={s.startTime}
+                    onChange={e => setShift(i, 'startTime', e.target.value)} />
+                </div>
+                <div className="col-span-3">
+                  <label className="form-label text-xs">End</label>
+                  <input type="time" className="input-field text-sm" value={s.endTime}
+                    onChange={e => setShift(i, 'endTime', e.target.value)} />
+                </div>
+                <div className="col-span-1">
+                  <button type="button" onClick={() => removeShift(i)}
+                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500">
+                    <Minus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Rank Requirements */}
         <div className="card p-5 space-y-4">
           <div className="flex items-center justify-between">
@@ -292,6 +395,24 @@ export default function CreateDuty() {
               <Plus className="w-3.5 h-3.5" /> Add Resource
             </button>
           </div>
+
+          {!isSpecial && (
+            <div>
+              <label className="form-label flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-ink-400" /> Duty Type Template
+              </label>
+              <select className="input-field" value={selectedDutyType} onChange={e => handleDutyTypeChange(e.target.value)}>
+                <option value={OTHER}>Other (enter ranks manually)</option>
+                {dutyTypes.map(dt => (
+                  <option key={dt._id} value={dt._id}>{dt.name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-ink-400 mt-1">
+                Pick a saved duty type to auto-fill ranks below, or choose "Other" to enter them manually as usual. You can still adjust counts either way.{' '}
+                <a href="/operator/duty-types" className="text-signal2-600 dark:text-signal2-400 hover:underline">Manage duty types</a>
+              </p>
+            </div>
+          )}
 
           {rankRequirements.map((req, i) => {
             const avail = req.rankRef ? getRankAvail(req.rankRef) : null;

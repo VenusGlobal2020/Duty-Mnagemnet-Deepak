@@ -386,12 +386,16 @@ function DutyCard({ duty }) {
             </button>
           )}
 
+          {/* Officer-initiated swap requests are disabled for now — button
+              commented out, underlying mutation/modal logic kept intact below
+              in case this needs to be re-enabled later.
           {canRequestSwap && !hasPendingSwap && (
             <button onClick={() => setSwapOpen(true)}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 font-medium transition-colors">
               <ArrowLeftRight className="w-3 h-3" /> Request Swap
             </button>
           )}
+          */}
 
           {hasCheckedOut && (
             <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
@@ -418,6 +422,9 @@ function DutyCard({ duty }) {
           <AlertCircle className="w-4 h-4 text-signal-400" />
           Operator: {duty.operatorRef?.name || '—'}
         </div>
+        {/* Officer-initiated duty rejection is disabled for now — button
+            commented out, underlying mutation/modal logic kept intact below
+            in case this needs to be re-enabled later.
         {canReject ? (
           <button onClick={() => setRejectOpen(true)} className="btn-danger text-sm px-3 py-1.5">
             <XCircle className="w-3.5 h-3.5" /> Reject
@@ -427,6 +434,7 @@ function DutyCard({ duty }) {
             <Lock className="w-3.5 h-3.5" /> Duty started — can't reject
           </span>
         ) : null}
+        */}
       </div>
 
       {/* ── Reject modal ── */}

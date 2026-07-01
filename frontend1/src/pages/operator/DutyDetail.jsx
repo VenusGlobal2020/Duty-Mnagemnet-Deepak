@@ -5,7 +5,7 @@ import {
   ArrowLeft, RefreshCw, XCircle, FileText, MapPin, Clock, Phone,
   CheckCircle, Pencil, Users, Download, ExternalLink, Loader2,
   ClipboardCheck, AlertCircle, Lock, ArrowLeftRight, Check, X,
-  History, ChevronDown, ChevronUp
+  History, ChevronDown, ChevronUp, Plus, Minus, Trash2, Layers, Eye, EyeOff
 } from 'lucide-react';
 import api from '../../api/axios';
 import { apiError, formatDateTime, getStatusColor, getPriorityColor, getPriorityLabel, getDutyTypeColor } from '../../utils/helpers';
@@ -411,6 +411,155 @@ function SwapRequestsPanel({ dutyId, onSwapActioned }) {
   );
 }
 
+// ─── Rank Requirements panel — full freedom to raise/lower counts anytime ─────
+function RankRequirementsPanel({ dutyId, duty, ranks, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [rows, setRows] = useState([]);
+
+  const startEdit = () => {
+    setRows((duty.rankRequirements || []).map(r => ({
+      rankRef: r.rankRef?._id || r.rankRef,
+      count: r.count,
+    })));
+    setEditing(true);
+  };
+
+  const saveMut = useMutation({
+    mutationFn: (rankRequirements) => api.put(`/operator/duties/${dutyId}`, { rankRequirements }),
+    onSuccess: () => {
+      toast.success('Rank requirements updated');
+      setEditing(false);
+      onSaved();
+    },
+    onError: (err) => toast.error(apiError(err)),
+  });
+
+  const addRow = () => setRows(r => [...r, { rankRef: '', count: 1 }]);
+  const removeRow = (i) => setRows(r => r.filter((_, idx) => idx !== i));
+  const setRow = (i, key, val) => setRows(r => r.map((row, idx) => idx === i ? { ...row, [key]: val } : row));
+
+  const handleSave = () => {
+    const valid = rows.filter(r => r.rankRef && r.count > 0);
+    if (valid.length === 0) { toast.error('Add at least one rank requirement'); return; }
+    saveMut.mutate(valid);
+  };
+
+  return (
+    <div className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="section-title flex items-center gap-2">
+          <Users className="w-4 h-4 text-primary-500" /> Rank Requirements
+        </h2>
+        {!editing && (
+          <button onClick={startEdit} className="btn-secondary text-xs px-3 py-1.5">
+            <Pencil className="w-3 h-3" /> Edit Counts
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <div className="flex flex-wrap gap-2">
+          {(duty.rankRequirements || []).map((r, i) => (
+            <span key={i} className="text-sm font-medium px-3 py-1.5 rounded-full bg-ink-100 dark:bg-white/10 text-ink-700 dark:text-ink-300">
+              {r.rankRef?.code || r.rankRef?.name || 'Rank'} × {r.count}
+            </span>
+          ))}
+          {(!duty.rankRequirements || duty.rankRequirements.length === 0) && (
+            <p className="text-sm text-ink-400">No rank requirements set</p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-ink-400">
+            Raising a count tries to auto-assign more officers right away. Lowering a count frees up the most recently assigned officer(s) on that rank — this works even on an active duty.
+          </p>
+          {rows.map((r, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <select className="input-field text-sm flex-1" value={r.rankRef} onChange={e => setRow(i, 'rankRef', e.target.value)}>
+                <option value="">Select rank</option>
+                {ranks.map(rk => <option key={rk._id} value={rk._id}>{rk.code} — {rk.name}</option>)}
+              </select>
+              <input type="number" min={1} className="input-field text-sm w-20" value={r.count}
+                onChange={e => setRow(i, 'count', parseInt(e.target.value) || 1)} />
+              {rows.length > 1 && (
+                <button onClick={() => removeRow(i)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 shrink-0">
+                  <Minus className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          ))}
+          <button onClick={addRow} className="btn-secondary text-xs px-3 py-1.5">
+            <Plus className="w-3 h-3" /> Add Rank
+          </button>
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => setEditing(false)} className="btn-secondary flex-1">Cancel</button>
+            <button onClick={handleSave} disabled={saveMut.isPending} className="btn-primary flex-1">
+              {saveMut.isPending ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Delete Duty modal — requires the operator's account password ─────────────
+function DeleteDutyModal({ isOpen, onClose, dutyId, dutyName, onDeleted }) {
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+
+  const deleteMut = useMutation({
+    mutationFn: () => api.delete(`/operator/duties/${dutyId}`, { data: { password } }),
+    onSuccess: () => {
+      toast.success('Duty permanently deleted');
+      setPassword('');
+      onDeleted();
+    },
+    onError: (err) => toast.error(apiError(err)),
+  });
+
+  const close = () => { setPassword(''); onClose(); };
+
+  return (
+    <Modal isOpen={isOpen} onClose={close} title="Delete Duty Permanently" size="sm">
+      <div className="space-y-4">
+        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+          <p className="text-sm text-red-700 dark:text-red-300">
+            This will permanently delete <span className="font-semibold">{dutyName}</span> and all its attendance/swap history. This cannot be undone.
+          </p>
+        </div>
+        <div>
+          <label className="form-label">Confirm your account password</label>
+          <div className="relative">
+            <input
+              type={showPw ? 'text' : 'password'}
+              className="input-field pr-10"
+              placeholder="Enter your password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && password) deleteMut.mutate(); }}
+            />
+            <button type="button" onClick={() => setShowPw(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400">
+              {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={close} className="btn-secondary flex-1">Cancel</button>
+          <button
+            onClick={() => deleteMut.mutate()}
+            disabled={!password || deleteMut.isPending}
+            className="btn-danger flex-1"
+          >
+            {deleteMut.isPending ? 'Deleting...' : 'Delete Permanently'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function DutyDetail() {
   const { dutyId } = useParams();
@@ -421,6 +570,12 @@ export default function DutyDetail() {
   const [replaceTarget, setReplaceTarget] = useState(null);
   const [manualEditTarget, setManualEditTarget] = useState(null);
   const [manualPickId, setManualPickId]   = useState('');
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+
+  const { data: ranks = [] } = useQuery({
+    queryKey: ['op-ranks'],
+    queryFn: () => api.get('/operator/ranks/availability').then(r => r.data.data.ranks),
+  });
 
   const { data: duty, isLoading } = useQuery({
     queryKey: ['op-duty-detail', dutyId],
@@ -486,12 +641,16 @@ export default function DutyDetail() {
   const rejectedOfficers = duty.assignedOfficers?.filter(a => a.status === 'rejected') || [];
   const dutyStarted      = new Date(duty.startDate) <= new Date();
   const isActiveDuty     = duty.status === 'active' && dutyStarted;
-  // Pre-start edit (same as before)
-  const canEditPreStart  = ['draft', 'active'].includes(duty.status) && !dutyStarted;
-  // Operator can always swap officers on active ongoing duties too
+  // Full editing freedom while the duty is live — bounded only by status,
+  // not by whether it has started. Cancelled/completed duties are final.
+  // We still show separate "Edit" (pre-start) vs "Swap" (active) buttons for
+  // clarity, but both now work at any time — the backend no longer blocks
+  // officer changes just because the duty already started.
+  const canEditOfficersPreStart = ['draft', 'active'].includes(duty.status) && !dutyStarted;
   const canSwapActive    = isActiveDuty;
-  const canEditOfficers  = canEditPreStart;
-  const canCancel        = ['draft', 'active'].includes(duty.status) && !dutyStarted;
+  const canEditOfficers  = ['draft', 'active'].includes(duty.status);
+  const canCancel        = ['draft', 'active'].includes(duty.status);
+  const canDelete        = true; // any duty can be permanently deleted, password-gated
 
   const openMaps = () => {
     if (!duty.location?.lat || !duty.location?.lng) return;
@@ -527,11 +686,18 @@ export default function DutyDetail() {
               )}
             </div>
           </div>
-          {canCancel && (
-            <button onClick={() => setCancelDialog(true)} className="btn-danger text-sm">
-              <XCircle className="w-4 h-4" /> Cancel Duty
-            </button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {canCancel && (
+              <button onClick={() => setCancelDialog(true)} className="btn-danger text-sm">
+                <XCircle className="w-4 h-4" /> Cancel Duty
+              </button>
+            )}
+            {canDelete && (
+              <button onClick={() => setDeleteModalOpen(true)} className="btn-secondary text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
@@ -590,8 +756,48 @@ export default function DutyDetail() {
               </div>
             </div>
           )}
+          {duty.dutyTypeRef?.name && (
+            <div className="flex items-start gap-2">
+              <Layers className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs text-ink-400">Duty Type Template</p>
+                <p className="text-sm text-ink-700 dark:text-ink-300">{duty.dutyTypeRef.name}</p>
+              </div>
+            </div>
+          )}
+          {duty.shifts?.length > 0 && (
+            <div className="sm:col-span-2 flex items-start gap-2">
+              <Clock className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs text-ink-400">Shifts</p>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {duty.shifts.map((s, i) => (
+                    <span key={i} className="text-xs font-medium px-2 py-1 rounded-full bg-ink-100 dark:bg-white/10 text-ink-700 dark:text-ink-300">
+                      {s.label}: {s.startTime}–{s.endTime}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* ── Rank Requirements Panel (full freedom to raise/lower anytime) ── */}
+      <RankRequirementsPanel
+        dutyId={dutyId}
+        duty={duty}
+        ranks={ranks}
+        onSaved={() => qc.invalidateQueries(['op-duty-detail', dutyId])}
+      />
+
+      <DeleteDutyModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        dutyId={dutyId}
+        dutyName={duty.dutyName}
+        onDeleted={() => navigate('/operator/duties')}
+      />
 
       {/* ── Attendance Panel ── */}
       <AttendancePanel dutyId={dutyId} duty={duty} />
@@ -651,7 +857,7 @@ export default function DutyDetail() {
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-ink-400">{ao.officerRef?.phone}</span>
                   {/* Pre-start edit */}
-                  {canEditOfficers && (
+                  {canEditOfficersPreStart && (
                     <button
                       onClick={() => { setManualEditTarget({ ...ao, mode: 'prestart' }); setManualPickId(''); }}
                       className="btn-secondary text-xs px-2.5 py-1.5"
