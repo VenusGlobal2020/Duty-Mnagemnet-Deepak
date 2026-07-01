@@ -29,7 +29,7 @@ export default function TopBar({ onMenuClick, title }) {
           <h1 className="text-base font-bold font-display text-ink-900 dark:text-white truncate tracking-tight">{title}</h1>
           <div className="hidden sm:flex items-center gap-1.5 mt-0.5">
             <Circle className="w-2 h-2 text-emerald-500 fill-emerald-500" />
-            <span className="text-[11px] text-ink-400 dark:text-ink-400 font-mono uppercase tracking-wide">System online</span>
+            <span className="text-[11px] text-ink-400 dark:text-ink-400 font-mono uppercase tracking-wide">सिस्टम ऑनलाइन</span>
           </div>
         </div>
       </div>

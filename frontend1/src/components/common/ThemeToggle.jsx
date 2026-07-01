@@ -9,7 +9,7 @@ export default function ThemeToggle() {
       className="sidebar-link sidebar-link-inactive w-full"
     >
       {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
-      {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+      {theme === 'light' ? 'डार्क मोड' : 'लाइट मोड'}
     </button>
   );
 }

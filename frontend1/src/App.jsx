@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { TypingModeProvider } from './contexts/TypingModeContext';
 import LoginPage from './pages/auth/LoginPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import { MasterLayout, SuperadminLayout, AdminLayout, OperatorLayout, OfficerLayout } from './components/layout/index.jsx';
@@ -130,9 +131,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <TypingModeProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </TypingModeProvider>
     </ThemeProvider>
   );
 }

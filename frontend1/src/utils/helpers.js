@@ -43,18 +43,18 @@ export const getPriorityColor = (priority) => {
 };
 
 export const getPriorityLabel = (priority) => {
-  const map = { 1: 'Critical', 2: 'High', 3: 'Medium', 4: 'Low', 5: 'Minimal' };
+  const map = { 1: 'अति महत्वपूर्ण', 2: 'उच्च', 3: 'मध्यम', 4: 'निम्न', 5: 'न्यूनतम' };
   return map[priority] || `P${priority}`;
 };
 
 export const getRoleLabel = (role) => {
   const map = {
-    master: 'Master',
-    superadmin: 'SP (Superadmin)',
-    admin: 'ACP (Admin)',
-    operator_special: 'Special Operator',
-    operator_regular: 'Regular Operator',
-    officer: 'Officer',
+    master: 'मास्टर',
+    superadmin: 'एसपी (सुपरएडमिन)',
+    admin: 'एसीपी (एडमिन)',
+    operator_special: 'विशेष ऑपरेटर',
+    operator_regular: 'सामान्य ऑपरेटर',
+    officer: 'अधिकारी',
   };
   return map[role] || role;
 };
@@ -86,5 +86,5 @@ export const truncate = (str, len = 40) => {
 };
 
 export const apiError = (error) => {
-  return error.response?.data?.message || error.message || 'Something went wrong';
+  return error.response?.data?.message || error.message || 'कुछ गड़बड़ हो गई';
 };

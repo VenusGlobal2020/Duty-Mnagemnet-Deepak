@@ -1,7 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import Modal from './Modal';
 
-export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Confirm', danger = false, loading = false }) {
+export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'पुष्टि करें', danger = false, loading = false }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
       <div className="flex flex-col items-center text-center gap-4">
@@ -10,13 +10,13 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
         </div>
         <p className="text-sm text-ink-600 dark:text-ink-400">{message}</p>
         <div className="flex gap-3 w-full">
-          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button onClick={onClose} className="btn-secondary flex-1">रद्द करें</button>
           <button
             onClick={onConfirm}
             disabled={loading}
             className={`flex-1 ${danger ? 'btn-danger' : 'btn-primary'}`}
           >
-            {loading ? 'Processing...' : confirmLabel}
+            {loading ? 'प्रक्रिया जारी है...' : confirmLabel}
           </button>
         </div>
       </div>

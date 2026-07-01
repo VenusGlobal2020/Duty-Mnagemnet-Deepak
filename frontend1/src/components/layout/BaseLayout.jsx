@@ -13,7 +13,7 @@ export default function BaseLayout({ navItems }) {
     if (n.end) return location.pathname === n.to;
     return location.pathname.startsWith(n.to);
   });
-  const pageTitle = currentNav?.label || 'Dashboard';
+  const pageTitle = currentNav?.label || 'डैशबोर्ड';
 
   return (
     <div className="flex h-screen overflow-hidden bg-ink-100 dark:bg-ink-950">

@@ -188,7 +188,7 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
       <div className="flex items-center justify-between p-4 border-b border-ink-200/70 dark:border-white/[0.06] shrink-0">
         <div className="flex items-center gap-2">
           <MapPin className="w-4 h-4 text-signal-500" />
-          <h2 className="text-base font-bold font-display text-ink-900 dark:text-white">Pick Duty Location</h2>
+          <h2 className="text-base font-bold font-display text-ink-900 dark:text-white">ड्यूटी स्थान चुनें</h2>
         </div>
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-ink-100 dark:hover:bg-white/[0.06] transition-colors">
           <X className="w-4 h-4 text-ink-500 dark:text-ink-400" />
@@ -204,7 +204,7 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search a place or address..."
+              placeholder="कोई स्थान या पता खोजें..."
               className="input-field pl-8 text-sm py-1.5"
             />
           </div>
@@ -213,14 +213,14 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
             disabled={searching}
             className="btn-secondary text-xs px-3 py-1.5 shrink-0"
           >
-            {searching ? '...' : 'Search'}
+            {searching ? '...' : 'खोजें'}
           </button>
         </form>
         <button
           type="button"
           onClick={handleUseMyLocation}
           disabled={locating}
-          title="Use my current location"
+          title="मेरा वर्तमान स्थान उपयोग करें"
           className="btn-secondary text-xs px-3 py-1.5 shrink-0"
         >
           <Crosshair className={`w-3.5 h-3.5 ${locating ? 'animate-spin' : ''}`} />
@@ -231,7 +231,7 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
       <div className="relative flex-1 min-h-[360px]">
         <div ref={mapElRef} className="absolute inset-0" />
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] bg-ink-900/90 text-white text-xs px-3 py-1.5 rounded-full font-medium pointer-events-none shadow-lg">
-          Tap anywhere on the map to drop a pin
+          पिन लगाने के लिए मानचित्र पर कहीं भी टैप करें
         </div>
       </div>
 
@@ -240,12 +240,12 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
         <div className="text-xs text-ink-500 dark:text-ink-400 font-mono">
           {picked
             ? `${picked.lat.toFixed(6)}, ${picked.lng.toFixed(6)}`
-            : 'No location selected yet'}
+            : 'अभी तक कोई स्थान नहीं चुना गया'}
         </div>
         <div className="flex gap-2">
-          <button onClick={onClose} className="btn-secondary text-sm py-1.5 px-3">Cancel</button>
+          <button onClick={onClose} className="btn-secondary text-sm py-1.5 px-3">रद्द करें</button>
           <button onClick={handleConfirm} disabled={!picked} className="btn-primary text-sm py-1.5 px-3">
-            <Check className="w-3.5 h-3.5" /> Use This Location
+            <Check className="w-3.5 h-3.5" /> यह स्थान उपयोग करें
           </button>
         </div>
       </div>
