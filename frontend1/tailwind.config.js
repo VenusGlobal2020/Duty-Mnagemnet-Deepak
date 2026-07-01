@@ -62,9 +62,10 @@ export default {
         navy: { DEFAULT: '#0F172A', dark: '#070B14' },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['"Space Grotesk"', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['"Noto Sans Devanagari"', 'Mangal', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['"Noto Sans Devanagari"', '"Space Grotesk"', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        hindi: ['Mangal', '"Noto Sans Devanagari"', 'sans-serif'],
       },
       boxShadow: {
         'glow-signal': '0 0 0 1px rgba(240,160,18,0.25), 0 8px 24px -8px rgba(240,160,18,0.35)',
