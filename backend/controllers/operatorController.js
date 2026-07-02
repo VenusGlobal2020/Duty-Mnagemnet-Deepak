@@ -204,6 +204,7 @@ const createDuty = asyncHandler(async (req, res) => {
     priority, dutyType, description, phoneNumbers,
     rankRequirements, manualAssignments, vehicleNumber,
     dutyTypeRef, shifts,
+    sourceLat, sourceLng, destLat, destLng,
   } = req.body;
 
   if (!dutyName || !locationName || !lat || !lng || !startDate || !endDate || !priority) {
@@ -214,8 +215,20 @@ const createDuty = asyncHandler(async (req, res) => {
     return errorResponse(res, 400, 'End date must be after start date');
   }
 
-  if (isSpecial && dutyType && !['VVIP', 'CITY-POINT', 'CRIMINAL'].includes(dutyType)) {
+  if (isSpecial && dutyType && !['VVIP', 'CITY-POINT', 'CRIMINAL', 'MOBILITY'].includes(dutyType)) {
     return errorResponse(res, 400, 'Invalid duty type');
+  }
+
+  // MOBILITY duties need both a source and a destination point — officers
+  // check IN near the source and check OUT near the destination.
+  let sourceLocation = null;
+  let destinationLocation = null;
+  if (isSpecial && dutyType === 'MOBILITY') {
+    if (!sourceLat || !sourceLng || !destLat || !destLng) {
+      return errorResponse(res, 400, 'Source and destination coordinates are required for a MOBILITY duty');
+    }
+    sourceLocation = { lat: parseFloat(sourceLat), lng: parseFloat(sourceLng) };
+    destinationLocation = { lat: parseFloat(destLat), lng: parseFloat(destLng) };
   }
 
   const admin = await User.findById(req.user.adminRef);
@@ -301,6 +314,8 @@ const createDuty = asyncHandler(async (req, res) => {
     startDate: new Date(startDate), endDate: new Date(endDate),
     priority: parseInt(priority),
     ...(isSpecial && dutyType ? { dutyType } : {}),
+    ...(sourceLocation ? { sourceLocation } : {}),
+    ...(destinationLocation ? { destinationLocation } : {}),
     ...(resolvedDutyTypeRef ? { dutyTypeRef: resolvedDutyTypeRef } : {}),
     shifts: parsedShifts,
     description, phoneNumbers: parsedPhones,
@@ -495,6 +510,21 @@ const updateDuty = asyncHandler(async (req, res) => {
       lng: parseFloat(req.body.lng || duty.location.lng)
     };
     delete updateData.lat; delete updateData.lng;
+  }
+
+  // Source/destination coordinates — only meaningful for MOBILITY duties,
+  // but accepted whenever sent so an operator can correct them later.
+  if (req.body.sourceLat || req.body.sourceLng) {
+    updateData.sourceLocation = {
+      lat: parseFloat(req.body.sourceLat || duty.sourceLocation?.lat),
+      lng: parseFloat(req.body.sourceLng || duty.sourceLocation?.lng),
+    };
+  }
+  if (req.body.destLat || req.body.destLng) {
+    updateData.destinationLocation = {
+      lat: parseFloat(req.body.destLat || duty.destinationLocation?.lat),
+      lng: parseFloat(req.body.destLng || duty.destinationLocation?.lng),
+    };
   }
 
   // Shifts — fully replaceable at any time.

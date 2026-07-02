@@ -30,8 +30,20 @@ const dutySchema = new mongoose.Schema({
   priority: { type: Number, required: true, min: 1, max: 5 },
   dutyType: {
     type: String,
-    enum: ['VVIP', 'CITY-POINT', 'CRIMINAL'],
+    enum: ['VVIP', 'CITY-POINT', 'CRIMINAL', 'MOBILITY'],
     // Only for special operator — enforced at controller level
+  },
+  // Only set (and only meaningful) when dutyType === 'MOBILITY'. Officers on
+  // this duty check IN near sourceLocation and check OUT near
+  // destinationLocation instead of both check-in/check-out being measured
+  // against the single `location` field used by every other duty type.
+  sourceLocation: {
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+  },
+  destinationLocation: {
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
   },
   // Origin duty-type template used by a regular operator (optional — only
   // set when the duty was created by picking a saved DutyType instead of

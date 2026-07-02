@@ -67,6 +67,12 @@ const attendanceSchema = new mongoose.Schema({
     locationName: String,
     dutyLat: Number,
     dutyLng: Number,
+    // Only populated for MOBILITY duties — the source/destination points used
+    // for that day's check-in/check-out radius calculation.
+    sourceLat: Number,
+    sourceLng: Number,
+    destLat: Number,
+    destLng: Number,
     startDate: Date,
     endDate: Date,
   },

@@ -239,10 +239,16 @@ const checkIn = asyncHandler(async (req, res) => {
     return errorResponse(res, 409, 'You have already checked in today for this duty');
   }
 
+  // MOBILITY duties check IN near the source point, not the single `location`
+  // field every other duty type uses. Falls back to `location` if a MOBILITY
+  // duty is somehow missing a sourceLocation, so nothing breaks.
+  const isMobility = duty.dutyType === 'MOBILITY' && duty.sourceLocation?.lat != null && duty.sourceLocation?.lng != null;
+  const checkInRefLocation = isMobility ? duty.sourceLocation : duty.location;
+
   // Calculate distance from duty location
   const distanceMeters = getDistanceMeters(
     officerLat, officerLng,
-    duty.location.lat, duty.location.lng
+    checkInRefLocation.lat, checkInRefLocation.lng
   );
 
   const isWithinRadius = distanceMeters <= CHECKIN_RADIUS_METERS;
@@ -251,7 +257,7 @@ const checkIn = asyncHandler(async (req, res) => {
     return errorResponse(
       res,
       400,
-      `You are ${Math.round(distanceMeters)}m from the duty location. Check-in requires you to be within ${CHECKIN_RADIUS_METERS / 1000}km.`
+      `You are ${Math.round(distanceMeters)}m from the ${isMobility ? 'source' : 'duty'} location. Check-in requires you to be within ${CHECKIN_RADIUS_METERS / 1000}km.`
     );
   }
 
@@ -277,6 +283,12 @@ const checkIn = asyncHandler(async (req, res) => {
       locationName: duty.locationName,
       dutyLat: duty.location.lat,
       dutyLng: duty.location.lng,
+      ...(isMobility ? {
+        sourceLat: duty.sourceLocation.lat,
+        sourceLng: duty.sourceLocation.lng,
+        destLat: duty.destinationLocation?.lat,
+        destLng: duty.destinationLocation?.lng,
+      } : {}),
       startDate: duty.startDate,
       endDate: duty.endDate,
     },
@@ -334,14 +346,37 @@ const checkOut = asyncHandler(async (req, res) => {
     (now - attendance.checkedInAt) / (1000 * 60)
   );
 
+  const duty = await Duty.findById(dutyId).select('location dutyType sourceLocation destinationLocation');
+  const isMobility = duty && duty.dutyType === 'MOBILITY'
+    && duty.destinationLocation?.lat != null && duty.destinationLocation?.lng != null;
+
   let checkOutDistanceMeters = null;
-  if (lat !== undefined && lng !== undefined) {
-    const duty = await Duty.findById(dutyId).select('location');
-    if (duty) {
-      checkOutDistanceMeters = Math.round(
-        getDistanceMeters(parseFloat(lat), parseFloat(lng), duty.location.lat, duty.location.lng)
+  if (isMobility) {
+    // MOBILITY duties REQUIRE a destination-radius check-out — this is the
+    // whole point of the duty type, so unlike other duty types it's enforced,
+    // not just recorded for information.
+    if (lat === undefined || lng === undefined) {
+      return errorResponse(res, 400, 'lat and lng are required to check out of a MOBILITY duty');
+    }
+    const officerLat = parseFloat(lat);
+    const officerLng = parseFloat(lng);
+    if (isNaN(officerLat) || isNaN(officerLng)) {
+      return errorResponse(res, 400, 'Invalid coordinates');
+    }
+    checkOutDistanceMeters = Math.round(
+      getDistanceMeters(officerLat, officerLng, duty.destinationLocation.lat, duty.destinationLocation.lng)
+    );
+    if (checkOutDistanceMeters > CHECKIN_RADIUS_METERS) {
+      return errorResponse(
+        res,
+        400,
+        `You are ${checkOutDistanceMeters}m from the destination location. Check-out requires you to be within ${CHECKIN_RADIUS_METERS / 1000}km.`
       );
     }
+  } else if (lat !== undefined && lng !== undefined && duty) {
+    checkOutDistanceMeters = Math.round(
+      getDistanceMeters(parseFloat(lat), parseFloat(lng), duty.location.lat, duty.location.lng)
+    );
   }
 
   attendance.checkedOutAt = now;
