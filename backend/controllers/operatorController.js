@@ -8,7 +8,10 @@ const DutyType = require('../models/DutyType');
 const SwapRequest = require('../models/SwapRequest');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 const { createNotification, bulkNotify } = require('../utils/notificationService');
-const { notifyDutyAssigned, notifyDutyCancelled, notifyDutyUpdated, notifyOfficerReplaced } = require('../utils/whatsapp');
+const {
+  notifyDutyAssigned, notifyDutyCancelled, notifyDutyUpdated, notifyOfficerReplaced,
+  buildOfficersSummary, notifyDutyInfoToNumber, notifyDutyUpdateToNumber,
+} = require('../utils/whatsapp');
 const { cloudinary } = require('../config/cloudinary');
 
 // An officer is "busy" while they hold a live assignment (assigned/accepted) on
@@ -335,6 +338,18 @@ const createDuty = asyncHandler(async (req, res) => {
     }
   }
 
+  // Notify the duty's own contact number(s) — full duty + officer snapshot
+  if (populated.phoneNumbers && populated.phoneNumbers.length > 0) {
+    const officersSummary = buildOfficersSummary(populated.assignedOfficers);
+    for (const num of populated.phoneNumbers) {
+      await notifyDutyInfoToNumber(
+        num, dutyName, locationName, startDate, endDate,
+        isSpecial && dutyType ? dutyType : `Priority ${priority}`,
+        vehicleNumber, officersSummary
+      );
+    }
+  }
+
   return successResponse(res, 201, 'Duty created', {
     duty: populated,
     rankNotAvailable: rankNotAvailable.length > 0 ? rankNotAvailable : undefined,
@@ -598,6 +613,17 @@ const updateDuty = asyncHandler(async (req, res) => {
     }
   }
 
+  // Notify the duty's own contact number(s) — full duty + officer snapshot
+  if (changes && updated.phoneNumbers && updated.phoneNumbers.length > 0) {
+    const officersSummary = buildOfficersSummary(updated.assignedOfficers);
+    for (const num of updated.phoneNumbers) {
+      await notifyDutyUpdateToNumber(
+        num, updated.dutyName, 'Duty Updated', `Changed: ${changes}`,
+        updated.locationName, updated.startDate, updated.endDate, officersSummary
+      );
+    }
+  }
+
   // Notify newly-assigned officers (rank count increase)
   for (const officer of newlyAssignedForNotify) {
     if (officer.phone) {
@@ -635,12 +661,25 @@ const deleteDuty = asyncHandler(async (req, res) => {
   const { password } = req.body;
   if (!password) return errorResponse(res, 400, 'Password is required to delete a duty');
 
-  const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
+  const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id })
+    .populate('assignedOfficers.officerRef', 'name')
+    .populate('assignedOfficers.rankRef', 'name');
   if (!duty) return errorResponse(res, 404, 'Duty not found');
 
   const userWithPassword = await User.findById(req.user._id).select('+password');
   const isMatch = await userWithPassword.matchPassword(password);
   if (!isMatch) return errorResponse(res, 401, 'Incorrect password — duty was not deleted');
+
+  // Notify the duty's own contact number(s) before it's gone — full snapshot
+  if (duty.phoneNumbers && duty.phoneNumbers.length > 0) {
+    const officersSummary = buildOfficersSummary(duty.assignedOfficers);
+    for (const num of duty.phoneNumbers) {
+      await notifyDutyUpdateToNumber(
+        num, duty.dutyName, 'Duty Deleted', 'This duty has been permanently deleted by the operator',
+        duty.locationName, duty.startDate, duty.endDate, officersSummary
+      );
+    }
+  }
 
   await Attendance.deleteMany({ dutyRef: duty._id });
   await SwapRequest.deleteMany({ duty: duty._id });
@@ -653,7 +692,8 @@ const deleteDuty = asyncHandler(async (req, res) => {
 // @route  PATCH /api/operator/duties/:dutyId/cancel
 const cancelDuty = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id })
-    .populate('assignedOfficers.officerRef', 'name phone');
+    .populate('assignedOfficers.officerRef', 'name phone')
+    .populate('assignedOfficers.rankRef', 'name');
   if (!duty) return errorResponse(res, 404, 'Duty not found');
   if (duty.status === 'cancelled') return errorResponse(res, 400, 'Already cancelled');
 
@@ -668,6 +708,17 @@ const cancelDuty = asyncHandler(async (req, res) => {
   for (const ao of duty.assignedOfficers) {
     if (ao.officerRef?.phone && ao.status !== 'rejected') {
       await notifyDutyCancelled(ao.officerRef.phone, ao.officerRef.name, duty.dutyName, reason);
+    }
+  }
+
+  // Notify the duty's own contact number(s) — full duty + officer snapshot
+  if (duty.phoneNumbers && duty.phoneNumbers.length > 0) {
+    const officersSummary = buildOfficersSummary(duty.assignedOfficers);
+    for (const num of duty.phoneNumbers) {
+      await notifyDutyUpdateToNumber(
+        num, duty.dutyName, 'Duty Cancelled', reason || 'Cancelled by operator',
+        duty.locationName, duty.startDate, duty.endDate, officersSummary
+      );
     }
   }
 
@@ -730,6 +781,20 @@ const replaceOfficer = asyncHandler(async (req, res) => {
       body: `You have been assigned to duty: ${duty.dutyName}`,
       type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
     });
+  }
+
+  // Notify the duty's own contact number(s) — full duty + officer snapshot
+  if (duty.phoneNumbers && duty.phoneNumbers.length > 0) {
+    const forNotify = await Duty.findById(duty._id)
+      .populate('assignedOfficers.officerRef', 'name')
+      .populate('assignedOfficers.rankRef', 'name');
+    const officersSummary = buildOfficersSummary(forNotify.assignedOfficers);
+    for (const num of duty.phoneNumbers) {
+      await notifyDutyUpdateToNumber(
+        num, duty.dutyName, 'Officer Swapped', `${replacement.name} auto-replaced a rejected officer`,
+        duty.locationName, duty.startDate, duty.endDate, officersSummary
+      );
+    }
   }
 
   return successResponse(res, 200, 'Officer replaced', { replacement: { name: replacement.name, _id: replacement._id } });
@@ -797,6 +862,20 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
       body: `You have been assigned to duty: ${duty.dutyName}`,
       type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
     });
+  }
+
+  // Notify the duty's own contact number(s) — full duty + officer snapshot
+  if (duty.phoneNumbers && duty.phoneNumbers.length > 0) {
+    const forNotify = await Duty.findById(duty._id)
+      .populate('assignedOfficers.officerRef', 'name')
+      .populate('assignedOfficers.rankRef', 'name');
+    const officersSummary = buildOfficersSummary(forNotify.assignedOfficers);
+    for (const num of duty.phoneNumbers) {
+      await notifyDutyUpdateToNumber(
+        num, duty.dutyName, 'Officer Swapped', `${newOfficer.name} manually assigned by operator`,
+        duty.locationName, duty.startDate, duty.endDate, officersSummary
+      );
+    }
   }
 
   return successResponse(res, 200, 'Officer changed', { replacement: { name: newOfficer.name, _id: newOfficer._id } });

@@ -13,6 +13,8 @@ const {
   notifySwapExecuted,
   notifySwapRemoved,
   notifySwapCancelled,
+  buildOfficersSummary,
+  notifyDutyUpdateToNumber,
 } = require('../utils/whatsapp');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -359,6 +361,41 @@ const sendExecutionNotifications = async ({ primaryDuty, secondaryDuty, fromOffi
           body: 'Your swap request was superseded by another swap and can no longer be processed.',
           type: 'swap_cancelled', relatedDuty: stale.duty,
         });
+      }
+    }
+
+    // Notify the primary duty's own contact number(s) — full duty + officer snapshot
+    const populatedPrimary = await Duty.findById(primaryDuty._id)
+      .populate('assignedOfficers.officerRef', 'name')
+      .populate('assignedOfficers.rankRef', 'name');
+    if (populatedPrimary.phoneNumbers && populatedPrimary.phoneNumbers.length > 0) {
+      const officersSummary = buildOfficersSummary(populatedPrimary.assignedOfficers);
+      const detail = mode === 'swap'
+        ? `${toOfficer.name} swapped in for ${fromOfficer?.name || 'previous officer'} (exchanged with duty: ${secondaryDuty?.dutyName || 'another duty'})`
+        : `${toOfficer.name} assigned in place of ${fromOfficer?.name || 'previous officer'}`;
+      for (const num of populatedPrimary.phoneNumbers) {
+        await notifyDutyUpdateToNumber(
+          num, populatedPrimary.dutyName, 'Officer Swapped', detail,
+          populatedPrimary.locationName, populatedPrimary.startDate, populatedPrimary.endDate, officersSummary
+        );
+      }
+    }
+
+    // For a true two-way swap, the secondary duty's contact number(s) also
+    // need to know their assigned officer changed.
+    if (mode === 'swap' && secondaryDuty) {
+      const populatedSecondary = await Duty.findById(secondaryDuty._id)
+        .populate('assignedOfficers.officerRef', 'name')
+        .populate('assignedOfficers.rankRef', 'name');
+      if (populatedSecondary.phoneNumbers && populatedSecondary.phoneNumbers.length > 0) {
+        const officersSummary2 = buildOfficersSummary(populatedSecondary.assignedOfficers);
+        const detail2 = `${fromOfficer?.name || 'Officer'} swapped in for ${toOfficer.name} (exchanged with duty: ${primaryDuty.dutyName})`;
+        for (const num of populatedSecondary.phoneNumbers) {
+          await notifyDutyUpdateToNumber(
+            num, populatedSecondary.dutyName, 'Officer Swapped', detail2,
+            populatedSecondary.locationName, populatedSecondary.startDate, populatedSecondary.endDate, officersSummary2
+          );
+        }
       }
     }
   } catch (err) {

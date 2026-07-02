@@ -110,9 +110,7 @@ const sendOTPWhatsApp = async (phone, name, otp) => {
   return sendWhatsAppTemplate(phone, 'forgot_password_otp', [{
     type: 'body',
     parameters: [
-      { type: 'text', text: name },
       { type: 'text', text: otp },
-      { type: 'text', text: '10' },
     ],
   }]);
 };
@@ -234,6 +232,64 @@ const notifySwapCancelled = async (phone, operatorName, officerName, dutyName) =
   }]);
 };
 
+// ─── Duty Contact Number Templates (duty-level phoneNumbers field) ───────────
+// These go to the general contact number(s) captured on the duty itself
+// (Duty.phoneNumbers) — NOT to individual officers. One message on creation,
+// one on every subsequent change (update / cancel / delete / officer swap).
+
+// Builds a readable "Name (Rank)" list from a populated assignedOfficers array.
+// Only counts officers whose assignment is currently live (assigned/accepted).
+const buildOfficersSummary = (assignedOfficers = []) => {
+  const active = (assignedOfficers || []).filter(
+    (a) => a && a.officerRef && ['assigned', 'accepted'].includes(a.status)
+  );
+  if (active.length === 0) return 'No officers currently assigned';
+  return active
+    .map((a) => `${a.officerRef.name || 'Unknown'}${a.rankRef && a.rankRef.name ? ` (${a.rankRef.name})` : ''}`)
+    .join(', ');
+};
+
+// duty_info_created — sent to the duty's own contact number(s) when the duty
+// is first created. Full snapshot: duty details + currently assigned officers.
+// Template params: {{1}} duty name, {{2}} location, {{3}} start-end window,
+//                  {{4}} priority/type, {{5}} vehicle number, {{6}} officers list
+const notifyDutyInfoToNumber = async (phone, dutyName, locationName, startDate, endDate, priorityOrType, vehicleNumber, officersSummary) => {
+  return sendWhatsAppTemplate(phone, 'duty_info_created', [{
+    type: 'body',
+    parameters: [
+      { type: 'text', text: dutyName },
+      { type: 'text', text: locationName },
+      { type: 'text', text: `${new Date(startDate).toLocaleString('en-IN')} - ${new Date(endDate).toLocaleString('en-IN')}` },
+      { type: 'text', text: String(priorityOrType) },
+      { type: 'text', text: vehicleNumber || 'N/A' },
+      { type: 'text', text: officersSummary || 'No officers assigned yet' },
+    ],
+  }]);
+};
+
+// duty_update_info — sent to the duty's own contact number(s) on every later
+// change: field updates, cancellation, deletion, and officer swaps. Always
+// carries a full current snapshot so the number never has to piece together
+// history from multiple messages.
+// Template params: {{1}} duty name, {{2}} update type, {{3}} details,
+//                  {{4}} location, {{5}} start-end window, {{6}} officers list
+const notifyDutyUpdateToNumber = async (phone, dutyName, updateType, details, locationName, startDate, endDate, officersSummary) => {
+  return sendWhatsAppTemplate(phone, 'duty_update_info', [{
+    type: 'body',
+    parameters: [
+      { type: 'text', text: dutyName },
+      { type: 'text', text: updateType },
+      { type: 'text', text: details || 'N/A' },
+      { type: 'text', text: locationName || 'N/A' },
+      {
+        type: 'text',
+        text: `${startDate ? new Date(startDate).toLocaleString('en-IN') : 'N/A'} - ${endDate ? new Date(endDate).toLocaleString('en-IN') : 'N/A'}`,
+      },
+      { type: 'text', text: officersSummary || 'N/A' },
+    ],
+  }]);
+};
+
 module.exports = {
   sendWhatsAppTemplate,
   notifyDutyAssigned,
@@ -251,4 +307,8 @@ module.exports = {
   notifySwapExecuted,
   notifySwapRemoved,
   notifySwapCancelled,
+  // Duty contact-number notifications
+  buildOfficersSummary,
+  notifyDutyInfoToNumber,
+  notifyDutyUpdateToNumber,
 };
