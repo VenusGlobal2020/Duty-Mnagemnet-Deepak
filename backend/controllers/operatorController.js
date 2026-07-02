@@ -401,6 +401,7 @@ const getDutyById = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id })
     .populate('assignedOfficers.officerRef', 'name phone badgeNumber')
     .populate('assignedOfficers.rankRef', 'name code color')
+    .populate('assignedOfficers.replacedBy', 'name phone badgeNumber')
     .populate('rankRequirements.rankRef', 'name code color')
     .populate('dutyTypeRef', 'name')
     .populate('operatorRef', 'name')

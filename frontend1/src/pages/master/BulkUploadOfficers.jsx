@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Upload, FileSpreadsheet, Download, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import api from '../../api/axios';
-import { apiError } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 
 export default function BulkUploadOfficers() {
@@ -10,24 +9,14 @@ export default function BulkUploadOfficers() {
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  // Live per-officer progress, driven by the NDJSON stream from the backend
+  // — { processed, total, percent, created, skipped, failed, lastRow }
+  const [progress, setProgress] = useState(null);
 
   const { data: admins = [] } = useQuery({
     queryKey: ['master-admins-all'],
     queryFn: () => api.get('/master/admins?limit=100').then(r => r.data.data.data),
-  });
-
-  const uploadMut = useMutation({
-    mutationFn: ({ adminId, file }) => {
-      const fd = new FormData();
-      fd.append('adminId', adminId);
-      fd.append('file', file);
-      return api.post('/master/officers/bulk-upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    },
-    onSuccess: (res) => {
-      setResult(res.data.data);
-      toast.success(`Upload complete: ${res.data.data.created} officers created`);
-    },
-    onError: (err) => toast.error(apiError(err)),
   });
 
   const handleDrop = (e) => {
@@ -37,11 +26,77 @@ export default function BulkUploadOfficers() {
     else toast.error('Only Excel files (.xlsx, .xls) allowed');
   };
 
-  const handleSubmit = (e) => {
+  // Uploads via fetch() (rather than axios) so we can read the response body
+  // as a stream: the backend now sends one NDJSON progress event per officer
+  // row as it's processed, instead of one buffered JSON response at the end.
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!adminId) { toast.error('Select an admin'); return; }
     if (!file) { toast.error('Upload an Excel file'); return; }
-    uploadMut.mutate({ adminId, file });
+
+    setUploading(true);
+    setResult(null);
+    setProgress({ processed: 0, total: 0, percent: 0, created: 0, skipped: 0, failed: 0, lastRow: null });
+
+    try {
+      const fd = new FormData();
+      fd.append('adminId', adminId);
+      fd.append('file', file);
+
+      const token = localStorage.getItem('accessToken');
+      const base = api.defaults.baseURL || '';
+      const res = await fetch(`${base}/master/officers/bulk-upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => '');
+        let message = 'Upload failed';
+        try { message = JSON.parse(text)?.message || message; } catch { /* not JSON, use default */ }
+        throw new Error(message);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let lineEnd;
+        while ((lineEnd = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, lineEnd).trim();
+          buffer = buffer.slice(lineEnd + 1);
+          if (!line) continue;
+
+          const event = JSON.parse(line);
+          if (event.type === 'start') {
+            setProgress(p => ({ ...p, total: event.total }));
+          } else if (event.type === 'progress') {
+            setProgress({
+              processed: event.processed,
+              total: event.total,
+              percent: event.percent,
+              created: event.created,
+              skipped: event.skipped,
+              failed: event.failed,
+              lastRow: event.lastRow,
+            });
+          } else if (event.type === 'done') {
+            setResult(event.result);
+            toast.success(`Upload complete: ${event.result.created} officers created`);
+          }
+        }
+      }
+    } catch (err) {
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const downloadTemplate = () => {
@@ -132,10 +187,36 @@ export default function BulkUploadOfficers() {
           </div>
         </div>
 
-        <button type="submit" disabled={uploadMut.isPending || !file || !adminId} className="btn-primary w-full justify-center py-2.5">
-          {uploadMut.isPending ? 'Uploading...' : <><Upload className="w-4 h-4" /> Upload Officers</>}
+        <button type="submit" disabled={uploading || !file || !adminId} className="btn-primary w-full justify-center py-2.5">
+          {uploading ? 'Uploading...' : <><Upload className="w-4 h-4" /> Upload Officers</>}
         </button>
       </form>
+
+      {/* Live progress bar — how many officers have been processed so far */}
+      {uploading && progress && (
+        <div className="card p-5 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Uploading officers{progress.total > 0 && ` — ${progress.processed} / ${progress.total}`}
+            </p>
+            <p className="text-sm font-bold text-primary-600 dark:text-primary-400">{progress.percent || 0}%</p>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+            <div
+              className="h-full bg-primary-600 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${progress.percent || 0}%` }}
+            />
+          </div>
+          {progress.lastRow && (
+            <p className="text-xs text-gray-400 truncate">Last processed: {progress.lastRow}</p>
+          )}
+          <div className="flex gap-4 text-xs">
+            <span className="text-green-600 dark:text-green-400 font-medium">{progress.created || 0} created</span>
+            <span className="text-yellow-600 dark:text-yellow-400 font-medium">{progress.skipped || 0} skipped</span>
+            <span className="text-red-600 dark:text-red-400 font-medium">{progress.failed || 0} failed</span>
+          </div>
+        </div>
+      )}
 
       {/* Result */}
       {result && (

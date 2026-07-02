@@ -280,66 +280,88 @@ const bulkUploadOfficers = asyncHandler(async (req, res) => {
   };
 
   const rows = rawRows.map(normalizeRow);
+  const total = rows.length;
+
+  // ─── Stream live progress back to the client as each row is processed ──────
+  // Newline-delimited JSON (NDJSON): one JSON object per line. The one
+  // frontend consumer of this endpoint (BulkUploadOfficers.jsx) reads this
+  // with fetch()'s streaming body reader instead of a single buffered axios
+  // response, so it can show a real "X of Y officers processed" progress bar
+  // instead of just a spinner — each row here (rank lookup, user + officer
+  // creation, WhatsApp send) can take a noticeable moment, which is exactly
+  // why per-row progress is worth showing.
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const sendEvent = (event) => res.write(JSON.stringify(event) + '\n');
 
   const results = { created: 0, failed: [], skipped: 0 };
+  sendEvent({ type: 'start', total });
 
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     try {
       const { name, email, phone, gender, dateOfBirth, rankCode, badgeNumber, designation } = row;
 
       if (!name || !email || !phone || !rankCode) {
         results.failed.push({ row: name || email, reason: 'Missing required fields' });
-        continue;
-      }
-
-      // Phone validation
-      if (!/^[6-9]\d{9}$/.test(String(phone))) {
+      } else if (!/^[6-9]\d{9}$/.test(String(phone))) {
         results.failed.push({ row: email, reason: 'Invalid phone number' });
-        continue;
+      } else {
+        const rank = await Rank.findOne({ code: String(rankCode).toUpperCase(), isActive: true });
+        if (!rank) {
+          results.failed.push({ row: email, reason: `Rank code '${rankCode}' not found` });
+        } else {
+          const existingUser = await User.findOne({ email: email.toLowerCase() });
+          if (existingUser) {
+            results.skipped++;
+          } else {
+            const tempPassword = generateTempPassword();
+            const userDoc = await User.create({
+              name, email: email.toLowerCase(), phone: String(phone),
+              password: String(phone), gender: gender || 'male',
+              dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1990-01-01'),
+              role: 'officer', adminRef: adminId,
+              superadminRef: admin.superadminRef, rankRef: rank._id,
+              badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
+              designation
+            });
+
+            await Officer.create({
+              userRef: userDoc._id, adminRef: adminId,
+              superadminRef: admin.superadminRef,
+              name, phone: String(phone), email: email.toLowerCase(),
+              gender: gender || 'male',
+              dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+              rankRef: rank._id, badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
+              designation
+            });
+
+            await sendWelcomeMessage(String(phone), name, `Officer (${rank.name})`, email, tempPassword);
+            results.created++;
+          }
+        }
       }
-
-      const rank = await Rank.findOne({ code: String(rankCode).toUpperCase(), isActive: true });
-      if (!rank) {
-        results.failed.push({ row: email, reason: `Rank code '${rankCode}' not found` });
-        continue;
-      }
-
-      const existingUser = await User.findOne({ email: email.toLowerCase() });
-      if (existingUser) {
-        results.skipped++;
-        continue;
-      }
-
-      const tempPassword = generateTempPassword();
-      const userDoc = await User.create({
-        name, email: email.toLowerCase(), phone: String(phone),
-        password: String(phone), gender: gender || 'male',
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1990-01-01'),
-        role: 'officer', adminRef: adminId,
-        superadminRef: admin.superadminRef, rankRef: rank._id,
-        badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
-        designation
-      });
-
-      await Officer.create({
-        userRef: userDoc._id, adminRef: adminId,
-        superadminRef: admin.superadminRef,
-        name, phone: String(phone), email: email.toLowerCase(),
-        gender: gender || 'male',
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-        rankRef: rank._id, badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
-        designation
-      });
-
-      await sendWelcomeMessage(String(phone), name, `Officer (${rank.name})`, email, tempPassword);
-      results.created++;
     } catch (err) {
       console.log(err)
       results.failed.push({ row: row.email || row.name, reason: err.message });
     }
+
+    sendEvent({
+      type: 'progress',
+      processed: i + 1,
+      total,
+      percent: Math.round(((i + 1) / total) * 100),
+      created: results.created,
+      skipped: results.skipped,
+      failed: results.failed.length,
+      lastRow: row.name || row.email || null,
+    });
   }
 
-  return successResponse(res, 200, 'Bulk upload completed', results);
+  sendEvent({ type: 'done', result: results });
+  res.end();
 });
 
 // @desc   View all officers (master-level)

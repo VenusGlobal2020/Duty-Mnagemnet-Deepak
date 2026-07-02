@@ -60,6 +60,139 @@ const matchShift = (shifts, at = new Date()) => {
   return shifts[0].label; // fallback: no exact match, tag with the first defined shift
 };
 
+// ─── DAY-WISE / SWAP-AWARE ATTENDANCE HELPERS ────────────────────────────────
+// Shared by getDutyAttendance and exportAttendancePDF so both the duty detail
+// page and the PDF export show the exact same swap-aware picture: every
+// officer who ever actually served on the duty (not just whoever holds the
+// slot right now), correctly split by calendar day when the duty spans more
+// than one day.
+
+// Strip the time portion, keep just the calendar day (server-local midnight).
+const dayOnly = (d) => {
+  const x = new Date(d);
+  return new Date(x.getFullYear(), x.getMonth(), x.getDate());
+};
+
+// Inclusive list of YYYY-MM-DD date-strings between two Dates.
+const enumerateDateKeys = (start, end) => {
+  const keys = [];
+  let cur = dayOnly(start);
+  const last = dayOnly(end);
+  while (cur.getTime() <= last.getTime()) {
+    keys.push(getDateStr(cur));
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+  }
+  return keys;
+};
+
+// Human day header for PDF/day sections, e.g. "Tue, 15 Jul 2026".
+const dayLabelFor = (dateKey) => {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+// For every assignment slot that was ever actually live on the duty (i.e.
+// excluding 'rejected' — that officer never actually served), work out which
+// calendar days that slot was live for. This is what lets a mid-duty swap
+// show up correctly: the outgoing officer keeps their earlier days, the
+// incoming officer gets the days from the swap date onward, instead of one
+// of them simply disappearing from the record.
+const buildOfficerTenures = (duty) => {
+  const dutyStart = dayOnly(duty.startDate);
+  const dutyEnd = dayOnly(duty.endDate);
+
+  return (duty.assignedOfficers || [])
+    .filter((ao) => ao.status !== 'rejected')
+    .map((ao) => {
+      const assignedDay = ao.assignedAt ? dayOnly(ao.assignedAt) : dutyStart;
+      const tenureStart = assignedDay > dutyStart ? assignedDay : dutyStart;
+      // A slot that was swapped/removed ends its tenure on that date; a slot
+      // still live today runs all the way to the duty's end date.
+      const endDay = ao.replacedAt ? dayOnly(ao.replacedAt) : dutyEnd;
+      const tenureEnd = endDay < dutyEnd ? endDay : dutyEnd;
+      return { ao, tenureStart, tenureEnd };
+    });
+};
+
+// Swap metadata for one assignment slot — who it was swapped out to (this
+// slot ended because someone else took over) and/or who it was swapped in
+// from (this slot itself began because it took over from someone else). A
+// single slot can be both on a long multi-day duty.
+const getSwapMeta = (ao, allAssignments) => {
+  const meta = { swappedOutTo: null, swappedInFrom: null };
+  if (ao.replacedBy) {
+    meta.swappedOutTo = { officer: ao.replacedBy, at: ao.replacedAt };
+  }
+  // A slot was swapped IN if some other slot in this duty names this
+  // officer as its replacement — this is checked directly against sibling
+  // assignments (rather than a swapRequestRef link) since force-swaps don't
+  // always originate from a SwapRequest document.
+  const outgoing = allAssignments.find(
+    (x) =>
+      x.replacedBy &&
+      x.officerRef &&
+      ao.officerRef &&
+      x.replacedBy._id?.toString() === ao.officerRef._id?.toString() &&
+      x._id.toString() !== ao._id.toString()
+  );
+  if (outgoing) {
+    meta.swappedInFrom = { officer: outgoing.officerRef, at: outgoing.replacedAt };
+  }
+  return meta;
+};
+
+// Builds the full swap-aware, day-by-day attendance breakdown for a duty.
+// Returns an array of { date, dayLabel, officers: [...] } — one entry per
+// calendar day the duty spans (single-day duties just get one entry).
+const buildDailyAttendance = (duty, attendanceRecords) => {
+  // date -> officerId -> attendance record, for per-day lookups.
+  const byDateOfficer = {};
+  for (const rec of attendanceRecords) {
+    if (!rec.officerRef) continue;
+    const oid = rec.officerRef._id.toString();
+    if (!byDateOfficer[rec.date]) byDateOfficer[rec.date] = {};
+    byDateOfficer[rec.date][oid] = rec;
+  }
+
+  const tenures = buildOfficerTenures(duty);
+  const allAssignments = duty.assignedOfficers || [];
+  const dateKeys = enumerateDateKeys(duty.startDate, duty.endDate);
+
+  return dateKeys.map((dateKey) => {
+    const dayStart = dayOnly(dateKey);
+    const officersToday = tenures
+      .filter((t) => dayStart.getTime() >= t.tenureStart.getTime() && dayStart.getTime() <= t.tenureEnd.getTime())
+      .map(({ ao }) => {
+        const oid = ao.officerRef?._id?.toString();
+        const rec = oid ? byDateOfficer[dateKey]?.[oid] : null;
+        const swapMeta = getSwapMeta(ao, allAssignments);
+        return {
+          assignmentId: ao._id,
+          officer: ao.officerRef,
+          rank: ao.rankRef,
+          assignmentStatus: ao.status,
+          swappedOutTo: swapMeta.swappedOutTo,
+          swappedInFrom: swapMeta.swappedInFrom,
+          attendance: rec
+            ? {
+                _id: rec._id,
+                checkedInAt: rec.checkedInAt,
+                checkedOutAt: rec.checkedOutAt,
+                durationMinutes: rec.durationMinutes,
+                checkInDistanceMeters: rec.checkInDistanceMeters,
+                status: rec.status,
+                isWithinRadius: rec.isWithinRadius,
+              }
+            : null,
+          attendanceStatus: rec ? rec.status : 'absent',
+        };
+      });
+
+    return { date: dateKey, dayLabel: dayLabelFor(dateKey), officers: officersToday };
+  });
+};
+
 // ─── OFFICER: CHECK-IN ────────────────────────────────────────────────────────
 
 // @desc   Officer checks in to a duty (must be within 1km of duty location)
@@ -277,7 +410,8 @@ const getDutyAttendance = asyncHandler(async (req, res) => {
 
   const duty = await Duty.findOne(dutyFilter)
     .populate('assignedOfficers.officerRef', 'name phone badgeNumber')
-    .populate('assignedOfficers.rankRef', 'name code color');
+    .populate('assignedOfficers.rankRef', 'name code color')
+    .populate('assignedOfficers.replacedBy', 'name phone badgeNumber');
 
   if (!duty) return errorResponse(res, 404, 'Duty not found or access denied');
 
@@ -309,12 +443,17 @@ const getDutyAttendance = asyncHandler(async (req, res) => {
     };
   }
 
-  // Merge assignment data with attendance data
-  const summary = duty.assignedOfficers
-    .filter(ao => ['assigned', 'accepted'].includes(ao.status))
+  // Merge assignment data with attendance data — includes EVERY officer who
+  // ever actually served (i.e. not 'rejected'), not just whoever currently
+  // holds the slot. This is what makes a swapped-out officer's attendance
+  // still show up, alongside the officer who swapped in.
+  const allAssignments = duty.assignedOfficers || [];
+  const summary = allAssignments
+    .filter((ao) => ao.status !== 'rejected')
     .map((ao) => {
       const officerId = ao.officerRef?._id?.toString();
       const att = attendanceMap[officerId];
+      const swapMeta = getSwapMeta(ao, allAssignments);
       return {
         officer: {
           _id: ao.officerRef?._id,
@@ -324,6 +463,8 @@ const getDutyAttendance = asyncHandler(async (req, res) => {
         },
         rank: ao.rankRef,
         assignmentStatus: ao.status,
+        swappedOutTo: swapMeta.swappedOutTo,
+        swappedInFrom: swapMeta.swappedInFrom,
         attendance: att
           ? {
               _id: att._id,
@@ -346,6 +487,13 @@ const getDutyAttendance = asyncHandler(async (req, res) => {
     absent: summary.filter((s) => s.attendanceStatus === 'absent').length,
   };
 
+  // Day-wise, swap-aware breakdown — one entry per calendar day the duty
+  // spans, each listing exactly who was on duty that day (including whoever
+  // swapped in partway through) with that day's attendance. For a single-day
+  // duty this is just one entry mirroring `summary` above.
+  const dailyAttendance = buildDailyAttendance(duty, attendanceRecords);
+  const isMultiDay = dailyAttendance.length > 1;
+
   return successResponse(res, 200, 'Duty attendance fetched', {
     duty: {
       _id: duty._id,
@@ -360,6 +508,8 @@ const getDutyAttendance = asyncHandler(async (req, res) => {
     summary,
     stats,
     attendanceByDate,
+    dailyAttendance,
+    isMultiDay,
   });
 });
 
@@ -386,6 +536,7 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne(dutyFilter)
     .populate('assignedOfficers.officerRef', 'name phone badgeNumber')
     .populate('assignedOfficers.rankRef', 'name code color')
+    .populate('assignedOfficers.replacedBy', 'name phone badgeNumber')
     .populate('operatorRef', 'name phone')
     .populate('adminRef', 'name');
 
@@ -393,34 +544,7 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
 
   const attendanceRecords = await Attendance.find({ dutyRef: dutyId })
     .populate('officerRef', 'name phone badgeNumber')
-    .sort({ checkedInAt: 1 });
-
-  const attendanceMap = {};
-  for (const record of attendanceRecords) {
-    attendanceMap[record.officerRef._id.toString()] = record;
-  }
-
-  const activeOfficers = duty.assignedOfficers.filter(
-    (ao) => ['assigned', 'accepted'].includes(ao.status)
-  );
-
-  const summary = activeOfficers.map((ao) => {
-    const officerId = ao.officerRef?._id?.toString();
-    const att = attendanceMap[officerId];
-    return {
-      officer: ao.officerRef,
-      rank: ao.rankRef,
-      att: att || null,
-      attendanceStatus: att ? att.status : 'absent',
-    };
-  });
-
-  const stats = {
-    total: summary.length,
-    present: summary.filter((s) => s.attendanceStatus === 'present').length,
-    partial: summary.filter((s) => s.attendanceStatus === 'partial').length,
-    absent: summary.filter((s) => s.attendanceStatus === 'absent').length,
-  };
+    .sort({ date: 1, checkedInAt: 1 });
 
   const formatDate = (d) => {
     if (!d) return '—';
@@ -447,26 +571,115 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
     return `<span style="background:${s.bg};color:${s.color};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:0.5px;">${s.label}</span>`;
   };
 
-  const tableRows = summary
-    .map((s, idx) => {
-      const att = s.att;
-      return `
+  // A short, unmistakable tag under an officer's name whenever a swap
+  // touches their slot — so a swap is obvious at a glance, in both
+  // directions (who they replaced, and/or who replaced them).
+  const swapBadgeHtml = (entry) => {
+    let out = '';
+    if (entry.swappedInFrom) {
+      out += `<div style="margin-top:4px;display:inline-block;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;letter-spacing:0.3px;">⇄ SWAPPED IN — replaced ${entry.swappedInFrom.officer?.name || 'officer'} (${formatDate(entry.swappedInFrom.at)})</div>`;
+    }
+    if (entry.swappedOutTo) {
+      out += `<div style="margin-top:4px;display:inline-block;background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;letter-spacing:0.3px;">⇄ SWAPPED OUT — replaced by ${entry.swappedOutTo.officer?.name || 'officer'} (${formatDate(entry.swappedOutTo.at)})</div>`;
+    }
+    return out;
+  };
+
+  // One <tr> per officer entry — reused for both the single-day table and
+  // every per-day table on a multi-day duty, so the row markup never drifts
+  // out of sync between the two.
+  const attendanceRowHtml = (entry, idx) => {
+    const att = entry.attendance;
+    return `
       <tr style="background:${idx % 2 === 0 ? '#fff' : '#f8fafc'};">
         <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:center;color:#64748b;font-size:13px;">${idx + 1}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">
-          <div style="font-weight:600;color:#0f172a;font-size:13px;">${s.officer?.name || '—'}</div>
-          <div style="color:#64748b;font-size:11px;">${s.officer?.badgeNumber ? `Badge: ${s.officer.badgeNumber}` : ''}</div>
+          <div style="font-weight:600;color:#0f172a;font-size:13px;">${entry.officer?.name || '—'}</div>
+          <div style="color:#64748b;font-size:11px;">${entry.officer?.badgeNumber ? `Badge: ${entry.officer.badgeNumber}` : ''}</div>
+          ${swapBadgeHtml(entry)}
         </td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#475569;">${s.rank?.name || '—'}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#475569;">${s.officer?.phone || '—'}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#475569;">${entry.rank?.name || '—'}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#475569;">${entry.officer?.phone || '—'}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#475569;">${formatDate(att?.checkedInAt)}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#475569;">${formatDate(att?.checkedOutAt)}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#475569;">${formatDuration(att?.durationMinutes)}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:center;">${statusBadge(s.attendanceStatus)}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:center;">${statusBadge(entry.attendanceStatus)}</td>
       </tr>
     `;
-    })
-    .join('');
+  };
+
+  const attTableHeadHtml = `
+      <thead>
+        <tr style="background:#f1f5f9;">
+          <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;white-space:nowrap;">#</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Officer</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Rank</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Phone</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;white-space:nowrap;">Check-In</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;white-space:nowrap;">Check-Out</th>
+          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Duration</th>
+          <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Status</th>
+        </tr>
+      </thead>`;
+
+  // Swap-aware, day-by-day breakdown — every officer who ever actually
+  // served on the duty (including anyone swapped in/out mid-duty), split
+  // by calendar day. For a single-day duty this is just one day's worth.
+  const dailyAttendance = buildDailyAttendance(duty, attendanceRecords);
+  const isMultiDay = dailyAttendance.length > 1;
+
+  const flatEntries = dailyAttendance.flatMap((d) => d.officers);
+  const stats = {
+    total: flatEntries.length,
+    present: flatEntries.filter((s) => s.attendanceStatus === 'present').length,
+    partial: flatEntries.filter((s) => s.attendanceStatus === 'partial').length,
+    absent: flatEntries.filter((s) => s.attendanceStatus === 'absent').length,
+  };
+
+  // Single-day duty: one flat table, same look as before (just now correctly
+  // including any officer who was swapped in/out that same day). Multi-day
+  // duty: one table PER calendar day, each showing exactly who was on duty
+  // that day — today's people today, tomorrow's people tomorrow.
+  const attendanceSectionHtml = !isMultiDay
+    ? `
+  <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:32px;">
+    <div style="background:#1e3a5f;padding:14px 16px;">
+      <div style="color:#fff;font-size:13px;font-weight:700;letter-spacing:0.5px;">Officer Attendance Details</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;">
+      ${attTableHeadHtml}
+      <tbody>
+        ${
+          (dailyAttendance[0]?.officers || []).map((e, i) => attendanceRowHtml(e, i)).join('') ||
+          `<tr><td colspan="8" style="text-align:center;padding:24px;color:#94a3b8;font-size:13px;">No attendance records found</td></tr>`
+        }
+      </tbody>
+    </table>
+  </div>`
+    : `
+  <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">
+    Day-wise Officer Attendance (${dailyAttendance.length} days)
+  </div>
+  ${dailyAttendance
+    .map(
+      (day, di) => `
+  <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:20px;page-break-inside:avoid;">
+    <div style="background:#1e3a5f;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+      <div style="color:#fff;font-size:13px;font-weight:700;letter-spacing:0.5px;">Day ${di + 1} — ${day.dayLabel}</div>
+      <div style="color:#93c5fd;font-size:11px;font-weight:600;">${day.officers.length} officer(s) on duty</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;">
+      ${attTableHeadHtml}
+      <tbody>
+        ${
+          day.officers.map((e, i) => attendanceRowHtml(e, i)).join('') ||
+          `<tr><td colspan="8" style="text-align:center;padding:24px;color:#94a3b8;font-size:13px;">No officers recorded for this day</td></tr>`
+        }
+      </tbody>
+    </table>
+  </div>`
+    )
+    .join('')}`;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -535,7 +748,7 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
   <!-- Stats Row -->
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;">
     ${[
-      { label: 'Total Assigned', value: stats.total, color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
+      { label: isMultiDay ? 'Total Officer-Days' : 'Total Assigned', value: stats.total, color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
       { label: 'Present', value: stats.present, color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
       { label: 'Checked In', value: stats.partial, color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
       { label: 'Absent', value: stats.absent, color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
@@ -550,29 +763,8 @@ const exportAttendancePDF = asyncHandler(async (req, res) => {
       .join('')}
   </div>
 
-  <!-- Attendance Table -->
-  <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:32px;">
-    <div style="background:#1e3a5f;padding:14px 16px;">
-      <div style="color:#fff;font-size:13px;font-weight:700;letter-spacing:0.5px;">Officer Attendance Details</div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr style="background:#f1f5f9;">
-          <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;white-space:nowrap;">#</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Officer</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Rank</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Phone</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;white-space:nowrap;">Check-In</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;white-space:nowrap;">Check-Out</th>
-          <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Duration</th>
-          <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;border-bottom:2px solid #e2e8f0;">Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tableRows || `<tr><td colspan="8" style="text-align:center;padding:24px;color:#94a3b8;font-size:13px;">No attendance records found</td></tr>`}
-      </tbody>
-    </table>
-  </div>
+  <!-- Attendance Table (swap-aware; day-wise when the duty spans multiple days) -->
+  ${attendanceSectionHtml}
 
   <!-- Duty Location Map -->
   ${duty.location?.lat && duty.location?.lng ? (() => {
