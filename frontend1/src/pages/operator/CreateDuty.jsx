@@ -22,6 +22,7 @@ export default function CreateDuty() {
     dutyType: isSpecial ? 'CITY-POINT' : '',
     description: '',
     vehicleNumber: '',
+    sourceLat: '', sourceLng: '', destLat: '', destLng: '',
   });
   const [phoneNumbers, setPhoneNumbers] = useState(['']);
   const [rankRequirements, setRankRequirements] = useState([
@@ -31,6 +32,8 @@ export default function CreateDuty() {
   const [rankWarning, setRankWarning] = useState([]);
   const [manualWarning, setManualWarning] = useState([]);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
+  const [sourceMapOpen, setSourceMapOpen] = useState(false);
+  const [destMapOpen, setDestMapOpen] = useState(false);
 
   // ── Duty type template (regular operator only) ──
   const [selectedDutyType, setSelectedDutyType] = useState(OTHER);
@@ -101,6 +104,9 @@ export default function CreateDuty() {
     }
     if (new Date(form.startDate) <= new Date()) {
       toast.error('Start time must be in the future'); return;
+    }
+    if (form.dutyType === 'MOBILITY' && (!form.sourceLat || !form.sourceLng || !form.destLat || !form.destLng)) {
+      toast.error('Source and destination coordinates are required for a MOBILITY duty'); return;
     }
     const validRanks = rankRequirements.filter(r => r.rankRef);
     if (validRanks.length === 0) { toast.error('Add at least one rank requirement'); return; }
@@ -310,7 +316,54 @@ export default function CreateDuty() {
                   <option value="VVIP">VVIP</option>
                   <option value="CITY-POINT">CITY-POINT</option>
                   <option value="CRIMINAL">CRIMINAL</option>
+                  <option value="MOBILITY">MOBILITY</option>
                 </select>
+              </div>
+            )}
+
+            {isSpecial && form.dutyType === 'MOBILITY' && (
+              <div className="sm:col-span-2 space-y-4 rounded-lg border border-signal2-200 dark:border-signal2-800 bg-signal2-50/50 dark:bg-signal2-900/10 p-4">
+                <p className="text-xs font-semibold text-signal2-700 dark:text-signal2-400">
+                  MOBILITY duty — officers check IN near the source point and check OUT near the destination point.
+                </p>
+                <div className="flex items-center justify-between -mb-1">
+                  <label className="form-label !mb-0">Source Coordinates *</label>
+                  <button type="button" onClick={() => setSourceMapOpen(true)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-signal2-600 dark:text-signal2-400 hover:underline">
+                    <MapIcon className="w-3.5 h-3.5" /> Fetch from Map
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="form-label">Source Latitude *</label>
+                    <input className="input-field" type="number" step="any" placeholder="25.4358"
+                      value={form.sourceLat} onChange={f('sourceLat')} required={form.dutyType === 'MOBILITY'} />
+                  </div>
+                  <div>
+                    <label className="form-label">Source Longitude *</label>
+                    <input className="input-field" type="number" step="any" placeholder="81.8463"
+                      value={form.sourceLng} onChange={f('sourceLng')} required={form.dutyType === 'MOBILITY'} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between -mb-1">
+                  <label className="form-label !mb-0">Destination Coordinates *</label>
+                  <button type="button" onClick={() => setDestMapOpen(true)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-signal2-600 dark:text-signal2-400 hover:underline">
+                    <MapIcon className="w-3.5 h-3.5" /> Fetch from Map
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="form-label">Destination Latitude *</label>
+                    <input className="input-field" type="number" step="any" placeholder="25.3176"
+                      value={form.destLat} onChange={f('destLat')} required={form.dutyType === 'MOBILITY'} />
+                  </div>
+                  <div>
+                    <label className="form-label">Destination Longitude *</label>
+                    <input className="input-field" type="number" step="any" placeholder="82.9739"
+                      value={form.destLng} onChange={f('destLng')} required={form.dutyType === 'MOBILITY'} />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -571,6 +624,28 @@ export default function CreateDuty() {
         onConfirm={({ lat, lng }) => {
           setForm(p => ({ ...p, lat: lat.toFixed(6), lng: lng.toFixed(6) }));
           toast.success('Location picked from map!');
+        }}
+      />
+
+      <LocationPickerMap
+        isOpen={sourceMapOpen}
+        onClose={() => setSourceMapOpen(false)}
+        initialLat={form.sourceLat ? parseFloat(form.sourceLat) : undefined}
+        initialLng={form.sourceLng ? parseFloat(form.sourceLng) : undefined}
+        onConfirm={({ lat, lng }) => {
+          setForm(p => ({ ...p, sourceLat: lat.toFixed(6), sourceLng: lng.toFixed(6) }));
+          toast.success('Source location picked from map!');
+        }}
+      />
+
+      <LocationPickerMap
+        isOpen={destMapOpen}
+        onClose={() => setDestMapOpen(false)}
+        initialLat={form.destLat ? parseFloat(form.destLat) : undefined}
+        initialLng={form.destLng ? parseFloat(form.destLng) : undefined}
+        onConfirm={({ lat, lng }) => {
+          setForm(p => ({ ...p, destLat: lat.toFixed(6), destLng: lng.toFixed(6) }));
+          toast.success('Destination location picked from map!');
         }}
       />
     </div>
