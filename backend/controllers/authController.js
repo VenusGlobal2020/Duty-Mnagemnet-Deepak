@@ -74,12 +74,12 @@ const forgotPassword = asyncHandler(async (req, res) => {
   // Try WhatsApp first, fallback to email
   let sent = false;
   if (user.phone) {
-    const waResult = await sendOTPWhatsApp(user.phone, user.name, otp);
+    const waResult = await sendOTPWhatsApp(user.phone, otp);
     sent = waResult.success;
   }
-  if (!sent) {
-    await sendOTPEmail(user.email, user.name, otp);
-  }
+  // if (!sent) {
+  //   await sendOTPEmail(user.email, user.name, otp);
+  // }
 
   return successResponse(res, 200, 'OTP sent to your registered phone/email.');
 });
