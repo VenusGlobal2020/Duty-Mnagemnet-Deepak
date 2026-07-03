@@ -5,35 +5,47 @@
 @layer base {
   html { @apply scroll-smooth; }
   body {
-    @apply font-sans text-ink-800 bg-ink-100 dark:bg-ink-950 dark:text-ink-100;
+    @apply font-sans text-ink-800 bg-ink-50 dark:bg-ink-950 dark:text-ink-100 antialiased;
     transition: background-color 0.2s, color 0.2s;
   }
   :root { --sidebar-width: 272px; }
 
-  /* Light mode keeps a cool, professional steel-gray surface instead of pure white */
-  .light body { background-color: #EEF1F6; }
+  /* Light mode: soft, airy slate-white surface with a faint aurora tint */
+  .light body {
+    background-color: #F6F7FB;
+    background-image:
+      radial-gradient(1200px 600px at 100% -10%, rgba(116,88,240,0.06), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(14,172,196,0.05), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4 { @apply font-display; }
 
   *:focus-visible {
-    outline: 2px solid #22D3EE;
+    outline: 2px solid #7458F0;
     outline-offset: 2px;
+    border-radius: 4px;
   }
 }
 
 @layer components {
   /* ── Buttons ─────────────────────────────────────────────────────── */
   .btn-primary {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-signal-500 text-ink-950 rounded-lg font-semibold text-sm
-           shadow-glow-signal hover:bg-signal-400 active:scale-[0.97] transition-all duration-150
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm text-white
+           bg-gradient-to-b from-signal-500 to-signal-600 shadow-glow-signal
+           hover:from-signal-400 hover:to-signal-500 hover:shadow-lift
+           active:scale-[0.97] transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:from-signal-500 disabled:hover:to-signal-600;
   }
   .btn-secondary {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-white text-ink-700 border border-ink-200 rounded-lg font-medium text-sm
-           hover:bg-ink-50 hover:border-ink-300 active:scale-[0.97] transition-all duration-150
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-white text-ink-700 border border-ink-200 rounded-xl font-medium text-sm
+           shadow-sm hover:bg-ink-50 hover:border-ink-300 active:scale-[0.97] transition-all duration-150
            dark:bg-ink-800 dark:text-ink-200 dark:border-ink-600 dark:hover:bg-ink-700;
   }
   .btn-danger {
-    @apply inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold text-sm
-           hover:bg-red-500 active:scale-[0.97] transition-all duration-150
+    @apply inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-b from-red-500 to-red-600 text-white rounded-xl font-semibold text-sm
+           shadow-[0_8px_20px_-8px_rgba(220,38,38,0.5)]
+           hover:from-red-400 hover:to-red-500 active:scale-[0.97] transition-all duration-150
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-ghost {
@@ -41,26 +53,36 @@
            hover:bg-ink-100 hover:text-ink-800 dark:text-ink-300 dark:hover:bg-ink-800 dark:hover:text-white
            transition-colors duration-150;
   }
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-9 h-9 rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-800
+           dark:text-ink-300 dark:hover:bg-white/[0.06] dark:hover:text-white transition-colors duration-150;
+  }
 
   /* ── Inputs ──────────────────────────────────────────────────────── */
   .input-field {
-    @apply w-full px-3 py-2 rounded-lg border border-ink-200 bg-white text-sm text-ink-900 placeholder-ink-400
-           focus:outline-none focus:ring-2 focus:ring-signal2-400/60 focus:border-signal2-400 transition
+    @apply w-full px-3.5 py-2.5 rounded-xl border border-ink-200 bg-white text-sm text-ink-900 placeholder-ink-400
+           shadow-sm focus:outline-none focus:ring-4 focus:ring-signal-400/15 focus:border-signal-400 transition
            dark:bg-ink-800 dark:border-ink-600 dark:text-ink-50 dark:placeholder-ink-400;
+  }
+  .select-field {
+    @apply input-field appearance-none pr-9 cursor-pointer;
   }
 
   /* ── Surfaces ────────────────────────────────────────────────────── */
   .card {
-    @apply bg-white dark:bg-ink-800 rounded-xl border border-ink-200/70 dark:border-ink-600/60 shadow-sm dark:shadow-panel;
+    @apply bg-white dark:bg-ink-800 rounded-2xl border border-ink-200/70 dark:border-ink-600/60 shadow-card dark:shadow-panel;
+  }
+  .card-hover {
+    @apply card transition-all duration-200 hover:shadow-lift hover:-translate-y-0.5 hover:border-signal-200 dark:hover:border-signal-500/40;
   }
   .panel {
-    @apply bg-white/90 dark:bg-ink-800/90 backdrop-blur-sm rounded-xl border border-ink-200/70 dark:border-ink-600/60;
+    @apply bg-white/90 dark:bg-ink-800/90 backdrop-blur-md rounded-2xl border border-ink-200/70 dark:border-ink-600/60;
   }
   .stat-card {
     @apply card relative p-5 flex items-center gap-4 overflow-hidden;
   }
 
-  /* Corner-bracket framing — the signature accent on data tiles */
+  /* Corner-bracket framing — subtle signature accent on data tiles */
   .bracket-frame {
     @apply relative;
   }
@@ -71,59 +93,85 @@
     width: 10px;
     height: 10px;
     pointer-events: none;
-    opacity: 0.55;
+    opacity: 0.45;
   }
   .bracket-frame::before {
     top: 0; left: 0;
     border-top: 2px solid currentColor;
     border-left: 2px solid currentColor;
+    border-top-left-radius: 6px;
   }
   .bracket-frame::after {
     bottom: 0; right: 0;
     border-bottom: 2px solid currentColor;
     border-right: 2px solid currentColor;
+    border-bottom-right-radius: 6px;
   }
 
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide;
   }
   .table-row {
-    @apply hover:bg-ink-50 dark:hover:bg-ink-700/40 transition-colors;
+    @apply hover:bg-signal-50/60 dark:hover:bg-ink-700/40 transition-colors;
   }
   .section-title {
     @apply text-base font-bold text-ink-900 dark:text-white font-display tracking-tight;
   }
   .form-label {
-    @apply block text-sm font-medium text-ink-600 dark:text-ink-300 mb-1;
+    @apply block text-sm font-medium text-ink-600 dark:text-ink-300 mb-1.5;
   }
 
   /* ── Sidebar links ───────────────────────────────────────────────── */
   .sidebar-link {
-    @apply relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer;
+    @apply relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer;
   }
   .sidebar-link-active {
-    @apply bg-white/[0.06] text-white;
+    @apply bg-gradient-to-r from-signal-500 to-signal-600 text-white shadow-glow-signal;
   }
   .sidebar-link-inactive {
-    @apply text-ink-300 hover:bg-white/[0.04] hover:text-white;
+    @apply text-ink-500 hover:bg-signal-50 hover:text-ink-900 dark:text-ink-300 dark:hover:bg-white/[0.04] dark:hover:text-white;
   }
   .sidebar-link-soon {
-    @apply text-ink-500 cursor-default;
+    @apply text-ink-400 cursor-default dark:text-ink-500;
+  }
+
+  /* ── Misc ────────────────────────────────────────────────────────── */
+  .glass-chip {
+    @apply inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest rounded-full px-3 py-1
+           bg-white/10 border border-white/20 text-white backdrop-blur-sm;
+  }
+  .skeleton {
+    @apply relative overflow-hidden bg-ink-100 dark:bg-ink-700 rounded-lg;
+  }
+  .skeleton::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+  .dark .skeleton::after {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    background-size: 200% 100%;
   }
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { @apply bg-transparent; }
-::-webkit-scrollbar-thumb { @apply bg-ink-300 dark:bg-ink-600 rounded-full; }
+::-webkit-scrollbar-thumb { @apply bg-ink-300/80 dark:bg-ink-600 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-ink-400 dark:bg-ink-500; }
 
 /* Mappls map canvas fix (equivalent of the old .leaflet-container rule) */
-.mappls-container, div[id^="map"] canvas { z-index: 1; border-radius: 8px; }
+.mappls-container, div[id^="map"] canvas { z-index: 1; border-radius: 12px; }
 
-/* Subtle grid backdrop used behind hero/login panels */
+/* Subtle grid backdrop used behind hero/login panels — colour follows currentColor via opacity layers */
 .grid-backdrop {
   background-image:
-    linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    linear-gradient(rgba(255,255,255,0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.09) 1px, transparent 1px);
   background-size: 34px 34px;
 }
+
+/* react-hot-toast: soften default shadow to match card system */
+.rht-toast, [data-hot-toast-active] { box-shadow: none !important; }

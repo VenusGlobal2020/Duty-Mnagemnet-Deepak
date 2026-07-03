@@ -33,38 +33,38 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-ink-100 dark:bg-ink-950">
+    <div className="min-h-screen flex bg-ink-50 dark:bg-ink-950">
       {/* ── Left panel — command-center branding ───────────────────────── */}
-      <div className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-12 bg-ink-950 overflow-hidden">
-        {/* Backdrop layers — grid + radial glow + scanline, the signature look */}
-        <div className="absolute inset-0 grid-backdrop opacity-60" />
-        <div className="absolute -top-32 -left-20 w-[34rem] h-[34rem] rounded-full bg-signal2-500/10 blur-3xl" />
-        <div className="absolute bottom-0 right-0 w-[26rem] h-[26rem] rounded-full bg-signal-500/10 blur-3xl" />
-        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/30 to-transparent pointer-events-none" />
+      <div className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-12 bg-gradient-to-br from-signal-600 via-signal-700 to-signal2-700 overflow-hidden">
+        {/* Backdrop layers — grid + soft glow, the signature look, now on a rich gradient instead of black */}
+        <div className="absolute inset-0 grid-backdrop opacity-40" />
+        <div className="absolute -top-32 -left-20 w-[34rem] h-[34rem] rounded-full bg-signal2-300/20 blur-3xl animate-float" />
+        <div className="absolute bottom-0 right-0 w-[26rem] h-[26rem] rounded-full bg-white/10 blur-3xl" />
+        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/10 to-transparent pointer-events-none" />
         <div className="absolute left-0 top-0 w-full h-px overflow-hidden opacity-40">
-          <div className="w-full h-24 bg-gradient-to-b from-signal2-400/40 to-transparent animate-scanline" />
+          <div className="w-full h-24 bg-gradient-to-b from-white/50 to-transparent animate-scanline" />
         </div>
 
         {/* Logo row */}
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-signal-400 to-signal-600 flex items-center justify-center shadow-glow-signal">
-            <Shield className="w-6 h-6 text-ink-950" strokeWidth={2.25} />
+          <div className="w-11 h-11 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center backdrop-blur-sm">
+            <Shield className="w-6 h-6 text-white" strokeWidth={2.25} />
           </div>
           <div className="leading-tight">
-            <span className="text-white font-display font-bold text-xl tracking-wide">DUTY<span className="text-signal-400">OPS</span></span>
-            <p className="text-[11px] text-ink-400 font-mono tracking-widest uppercase">कमांड कंसोल</p>
+            <span className="text-white font-display font-bold text-xl tracking-wide">DUTY<span className="text-white/70">OPS</span></span>
+            <p className="text-[11px] text-white/60 font-mono tracking-widest uppercase">कमांड कंसोल</p>
           </div>
         </div>
 
         {/* Hero content */}
         <div className="relative z-10">
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-signal2-300 bg-signal2-400/10 border border-signal2-400/25 rounded-full px-3 py-1 mb-6">
+          <span className="glass-chip mb-6 mt-4">
             <Activity className="w-3 h-3" /> लाइव ऑपरेशन
           </span>
           <h1 className="text-4xl xl:text-[2.75rem] font-display font-bold text-white leading-[1.15] mb-4 tracking-tight">
             पुलिस ड्यूटी<br />प्रबंधन प्रणाली
           </h1>
-          <p className="text-ink-300 text-base leading-relaxed max-w-md">
+          <p className="text-white/80 text-base leading-relaxed max-w-md">
             अधिकारियों की तैनाती करें, ड्यूटी को रीयल टाइम में ट्रैक करें, और हर असाइनमेंट को जवाबदेह बनाए रखें — वीवीआईपी ड्यूटी से लेकर सिटी-पॉइंट गश्त तक।
           </p>
 
@@ -75,35 +75,35 @@ export default function LoginPage() {
               { label: 'लाइव अलर्ट', value: 'पुश + व्हाट्सएप', icon: Activity },
               { label: 'सुरक्षा', value: 'JWT + रिफ्रेश', icon: Shield },
             ].map(item => (
-              <div key={item.label} className="bracket-frame text-signal2-400/40 bg-white/[0.04] border border-white/[0.06] rounded-xl p-3.5 backdrop-blur-sm">
-                <item.icon className="w-3.5 h-3.5 text-signal2-400 mb-2" />
-                <p className="text-ink-400 text-[11px] font-mono uppercase tracking-wide">{item.label}</p>
+              <div key={item.label} className="bracket-frame text-white/30 bg-white/10 border border-white/15 rounded-xl p-3.5 backdrop-blur-sm hover:bg-white/[0.14] transition-colors">
+                <item.icon className="w-3.5 h-3.5 text-white mb-2" />
+                <p className="text-white/60 text-[11px] font-mono uppercase tracking-wide">{item.label}</p>
                 <p className="text-white font-semibold text-sm mt-0.5">{item.value}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="relative z-10 text-ink-500 text-xs font-mono">© {new Date().getFullYear()} पुलिस ड्यूटी प्रबंधन प्रणाली — गोपनीय</p>
+        <p className="relative z-10 mt-3 text-white/50 text-xs font-mono">© {new Date().getFullYear()} पुलिस ड्यूटी प्रबंधन प्रणाली — गोपनीय</p>
       </div>
 
       {/* ── Right panel — form ──────────────────────────────────────────── */}
-      <div className="flex-1 flex items-center justify-center p-6 relative">
-        <div className="absolute inset-0 lg:hidden bg-ink-950" />
-        <div className="absolute inset-0 lg:hidden grid-backdrop opacity-50" />
+      <div className="flex-1 flex items-center justify-center p-6 relative bg-ink-50 dark:bg-ink-950">
+        <div className="absolute inset-0 lg:hidden bg-gradient-to-br from-signal-600 via-signal-700 to-signal2-700" />
+        <div className="absolute inset-0 lg:hidden grid-backdrop opacity-30" />
 
         <div className="relative w-full max-w-md">
           <div className="flex items-center gap-2 mb-8 lg:hidden">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-signal-400 to-signal-600 flex items-center justify-center shadow-glow-signal">
-              <Shield className="w-5 h-5 text-ink-950" strokeWidth={2.25} />
+            <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center backdrop-blur-sm">
+              <Shield className="w-5 h-5 text-white" strokeWidth={2.25} />
             </div>
-            <span className="font-display font-bold text-lg text-white">DUTY<span className="text-signal-400">OPS</span></span>
+            <span className="font-display font-bold text-lg text-white">DUTY<span className="text-white/70">OPS</span></span>
           </div>
 
-          <div className="card lg:shadow-panel p-7 lg:p-8 dark:bg-ink-900/95 lg:border lg:border-ink-200/70 dark:lg:border-white/[0.06]">
+          <div className="card shadow-panel p-7 lg:p-8">
             <div className="mb-7">
-              <h2 className="text-2xl font-display font-bold text-ink-900 dark:text-white lg:text-ink-900">
-                <span className="dark:text-white">वापसी पर स्वागत है</span>
+              <h2 className="text-2xl font-display font-bold text-ink-900 dark:text-white">
+                वापसी पर स्वागत है
               </h2>
               <p className="text-ink-500 dark:text-ink-400 mt-1.5 text-sm">अपने कमांड डैशबोर्ड तक पहुंचने के लिए साइन इन करें</p>
             </div>

@@ -17,7 +17,7 @@ export default function TopBar({ onMenuClick, title }) {
   const date = now.toLocaleDateString([], { weekday: 'short', day: '2-digit', month: 'short' });
 
   return (
-    <header className="h-16 flex items-center justify-between px-4 md:px-6 bg-white/90 dark:bg-ink-900/90 backdrop-blur-md border-b border-ink-200/70 dark:border-white/[0.06] shrink-0">
+    <header className="h-16 flex items-center justify-between px-4 md:px-6 bg-white/80 dark:bg-ink-900/90 backdrop-blur-md border-b border-ink-200/70 dark:border-white/[0.06] shadow-sm shrink-0 sticky top-0 z-30">
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onMenuClick}

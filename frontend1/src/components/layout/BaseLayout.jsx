@@ -16,7 +16,7 @@ export default function BaseLayout({ navItems }) {
   const pageTitle = currentNav?.label || 'डैशबोर्ड';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-ink-100 dark:bg-ink-950">
+    <div className="flex h-screen overflow-hidden bg-ink-50 dark:bg-ink-950">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div

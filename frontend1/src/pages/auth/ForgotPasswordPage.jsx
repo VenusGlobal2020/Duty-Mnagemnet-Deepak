@@ -57,21 +57,21 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-ink-950 relative overflow-hidden">
-      <div className="absolute inset-0 grid-backdrop opacity-50" />
-      <div className="absolute -top-32 -left-20 w-[34rem] h-[34rem] rounded-full bg-signal2-500/10 blur-3xl" />
-      <div className="absolute bottom-0 right-0 w-[26rem] h-[26rem] rounded-full bg-signal-500/10 blur-3xl" />
+    <div className="min-h-screen flex items-center justify-center p-6 bg-ink-50 dark:bg-ink-950 relative overflow-hidden">
+      <div className="absolute inset-0 bg-aurora opacity-70 dark:opacity-30" />
+      <div className="absolute -top-32 -left-20 w-[34rem] h-[34rem] rounded-full bg-signal2-300/20 blur-3xl" />
+      <div className="absolute bottom-0 right-0 w-[26rem] h-[26rem] rounded-full bg-signal-300/20 blur-3xl" />
 
       <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="flex items-center gap-2 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-signal-400 to-signal-600 flex items-center justify-center shadow-glow-signal">
-            <Shield className="w-5 h-5 text-ink-950" strokeWidth={2.25} />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-signal-500 to-signal-700 flex items-center justify-center shadow-glow-signal">
+            <Shield className="w-5 h-5 text-white" strokeWidth={2.25} />
           </div>
-          <span className="font-display font-bold text-lg text-white">DUTY<span className="text-signal-400">OPS</span></span>
+          <span className="font-display font-bold text-lg text-ink-900 dark:text-white">DUTY<span className="text-signal-500">OPS</span></span>
         </div>
 
-        <div className="card dark:bg-ink-900/95 dark:border-white/[0.06] p-6 lg:p-7 shadow-panel">
+        <div className="card p-6 lg:p-7 shadow-panel">
           {step === STEPS.EMAIL && (
             <>
               <h2 className="text-xl font-display font-bold mb-1 text-ink-900 dark:text-white">Forgot Password</h2>
@@ -140,7 +140,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         <div className="mt-4 text-center">
-          <Link to="/login" className="text-sm text-ink-400 hover:text-signal2-400 inline-flex items-center gap-1">
+          <Link to="/login" className="text-sm text-ink-500 hover:text-signal-600 dark:text-ink-400 dark:hover:text-signal2-400 inline-flex items-center gap-1">
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Login
           </Link>
         </div>
