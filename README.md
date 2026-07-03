@@ -13,6 +13,7 @@ A full-stack, role-based duty management system built for law enforcement agenci
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Environment Variables](#environment-variables)
+- [Mappls Setup](#️-mappls-setup)
 - [API Reference](#api-reference)
 - [Seeding the Database](#seeding-the-database)
 - [Deployment](#deployment)
@@ -93,7 +94,7 @@ Officer
 | Frontend | React 18, Vite, Tailwind CSS, TanStack Query v5 |
 | Icons | Lucide React |
 | Notifications (UI) | react-hot-toast |
-| Maps | React Leaflet |
+| Maps | Mappls (MapmyIndia) Web Maps SDK |
 | Backend | Node.js, Express 4 |
 | Database | MongoDB, Mongoose 8 |
 | Auth | JWT (access + refresh), Bcrypt |
@@ -306,7 +307,60 @@ VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 VITE_FIREBASE_APP_ID=your_app_id
 VITE_FIREBASE_VAPID_KEY=your_vapid_key
+
+# Mappls (MapmyIndia) — used by the duty location picker and the Map View page
+VITE_MAPPLS_API_KEY=your_mappls_map_sdk_key
 ```
+
+> See [🗺️ Mappls Setup](#️-mappls-setup) below for exactly what to create in the Mappls Console to get `VITE_MAPPLS_API_KEY`.
+
+---
+
+## 🗺️ Mappls Setup
+
+The app used React Leaflet + free OpenStreetMap tiles before, which needed no signup at all. Mappls is a commercial (India-focused) map provider, so it needs one key from their console before the duty location picker (`LocationPickerMap.jsx`) and the `Map View` page (`MapView.jsx`) will render anything.
+
+### 1. Create a Mappls account
+1. Go to **https://about.mappls.com/api/** → *Start for free* (or directly **https://apis.mappls.com/console**) and sign up / log in.
+2. This is a separate account from your Firebase/WhatsApp/Cloudinary accounts — it's specifically for CE Info Systems Ltd.'s Mappls (MapmyIndia) platform.
+
+### 2. Create a project and generate a key
+1. In the Mappls Console, create a new **Project**.
+2. Inside the project, go to **API Keys / Credentials** and generate a key for the **Web** platform (this is sometimes labelled "Map SDK Key" or "REST/JS Key" — it's a single string, not a client ID/secret pair).
+3. **Whitelist your domains** against that key — add both:
+   - Your production domain (e.g. `duty.yourdomain.gov.in`)
+   - `localhost` (for local development — Mappls' console usually has a specific "allow localhost" toggle or lets you add `http://localhost:5173`)
+   
+   Without whitelisting, the map will fail to load with an authorization error even if the key itself is correct.
+4. Make sure the **Vector Maps SDK** and **Place Search** capabilities are enabled for this key/project (they usually are by default on a new project, but check under the project's enabled APIs/products list).
+
+### 3. Add the key to the frontend
+Add this single line to `frontend/.env`:
+```env
+VITE_MAPPLS_API_KEY=your_mappls_map_sdk_key
+```
+That's it — no client ID, no client secret, no OAuth token refresh logic needed for what this app uses (map rendering, markers, and the address search box all work off this one key).
+
+### 4. What you get on the free/starter plan
+- A limited number of free map loads / SDK hits per day (check your current plan's limits on the console — they've changed this over time, so verify at signup rather than trusting an old number).
+- Usage is shared across web, Android, and iOS if you ever reuse the same key elsewhere.
+- If you outgrow the free tier, you upgrade the plan from the same console — no code changes needed on our side.
+
+### 5. Branding requirement (important)
+Per Mappls' terms of use, **you cannot hide or remove the Mappls logo/attribution** that the SDK renders on the map canvas. This is handled automatically by the SDK (same as how Google Maps or Leaflet+OSM show their own attribution) — just don't add custom CSS that hides it.
+
+### 6. Where it's used in code
+- `frontend/src/utils/mapplsLoader.js` — **new file.** Loads the Mappls SDK exactly once (via `mapplsClassObject.initialize(...)`) and caches that as a shared promise, so both files below reuse the same loaded SDK instead of each injecting their own `<script>` tags.
+- `frontend/src/components/common/LocationPickerMap.jsx` — the "pick duty location" map modal (tap/click to drop a pin, drag to adjust, search box with live address suggestions, "use my current location").
+- `frontend/src/pages/shared/MapView.jsx` — the role-based duty Map View page (colored status markers, click a marker for duty details).
+- All three files read the key from `import.meta.env.VITE_MAPPLS_API_KEY` and will show a small in-place Hindi error message ("Mappls API key सेट नहीं है...") instead of crashing if the key is missing.
+
+### 7. If something looks off after you plug in your real key
+The first pass of this integration was written against generic Mappls docs/blog examples and shipped a wrong method name (`mapplsClassObject.map()` instead of the actual `mapplsClassObject.Map()`/`.Marker()` — capitalized — used by the real `mappls-web-maps` v3.8.1 package). That's now fixed by pulling and reading the actual installed package source rather than relying on docs alone. Two spots are still worth a quick manual check once you test with your real key, since I can't run a live Mappls key from here:
+- The **search suggestions dropdown** (in `LocationPickerMap.jsx`) is rendered entirely by Mappls' own widget attached to the input (`mapplsPluginObject.search(...)`) — confirm the selected suggestion's coordinates flow through correctly (a `console.log(place)` inside that callback is the fastest way to check).
+- The **auto zoom-to-fit** on `MapView.jsx` when there are many duty markers, driven by each marker's `fitbounds` / `fitboundOptions` — if it doesn't fit as expected, that's the one part I'd sanity-check first.
+
+If you hit another `... is not a function` error like the last one, it almost always means a method name/casing mismatch between package versions — paste me the exact error and I'll pull the installed package source again to confirm the real signature rather than guessing.
 
 ---
 
