@@ -106,13 +106,78 @@ const notifyAccountSuspended = async (phone, name, reason) => {
 };
 
 // forgot_password_otp: {{1}} name, {{2}} OTP, {{3}} expiry minutes
-const sendOTPWhatsApp = async (phone, name, otp) => {
-  return sendWhatsAppTemplate(phone, 'forgot_password_otp', [{
-    type: 'body',
-    parameters: [
-      { type: 'text', text: otp },
-    ],
-  }]);
+// const sendOTPWhatsApp = async (phone, otp) => {
+//   return sendWhatsAppTemplate(phone, 'forgot_password_otp', [{
+//     type: 'body',
+//     parameters: [
+//       { type: 'text', text: otp },
+//     ],
+//   }]);
+// };
+
+const sendOTPWhatsApp = async (phone, otp) => {
+  try {
+    const formattedPhone = phone.startsWith("+")
+      ? phone.slice(1)
+      : `91${phone}`;
+
+    const payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: formattedPhone,
+      type: "template",
+      template: {
+        name: "forgot_password_otp", // Your Authentication Template name
+        language: {
+          code: "en",
+        },
+        components: [
+          {
+            type: "body",
+            parameters: [
+              {
+                type: "text",
+                text: otp,
+              },
+            ],
+          },
+          {
+            type: "button",
+            sub_type: "url",
+            index: "0",
+            parameters: [
+              {
+                type: "text",
+                text: otp,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const response = await axios.post(WHATSAPP_URL, payload, {
+      headers: {
+        Authorization: `Bearer ${process.env.WHATSAPP_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error(
+      "WhatsApp OTP Error:",
+      error.response?.data || error.message
+    );
+
+    return {
+      success: false,
+      error: error.response?.data || error.message,
+    };
+  }
 };
 
 // welcome_user: {{1}} name, {{2}} role, {{3}} email, {{4}} temp password
