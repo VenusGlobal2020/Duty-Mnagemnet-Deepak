@@ -53,7 +53,14 @@ api.interceptors.response.use(
       }
 
       try {
-        const { data } = await axios.post('/api/auth/refresh', { refreshToken });
+        // IMPORTANT: use the raw axios (not `api`, to dodge the interceptor
+        // loop) but with the SAME baseURL as `api` — otherwise this resolves
+        // against the frontend's own origin instead of the backend and
+        // always fails, silently forcing a logout on every token expiry.
+        const { data } = await axios.post(
+          `${import.meta.env.VITE_API_URL}/auth/refresh`,
+          { refreshToken }
+        );
         const newToken = data.data.accessToken;
         localStorage.setItem('accessToken', newToken);
         processQueue(null, newToken);

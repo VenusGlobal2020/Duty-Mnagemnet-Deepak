@@ -117,8 +117,8 @@
 ::-webkit-scrollbar-track { @apply bg-transparent; }
 ::-webkit-scrollbar-thumb { @apply bg-ink-300 dark:bg-ink-600 rounded-full; }
 
-/* Leaflet fix */
-.leaflet-container { z-index: 1; border-radius: 8px; }
+/* Mappls map canvas fix (equivalent of the old .leaflet-container rule) */
+.mappls-container, div[id^="map"] canvas { z-index: 1; border-radius: 8px; }
 
 /* Subtle grid backdrop used behind hero/login panels */
 .grid-backdrop {
