@@ -32,16 +32,16 @@ async function getPluginAccessToken() {
 // expired token surfaces immediately instead of silently staying broken for
 // the rest of the page session.
 function loadPluginsScript() {
-  if (window.mappls && window.mappls.search) return Promise.resolve();
+  if (window.mappls && window.mappls.search && window.mappls.getPinDetails) return Promise.resolve();
   if (pluginsLoadPromise) return pluginsLoadPromise;
 
   pluginsLoadPromise = getPluginAccessToken()
     .then((accessToken) => new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = `https://apis.mappls.com/advancedmaps/api/${accessToken}/map_sdk_plugins?v=3.0&libraries=search`;
+      script.src = `https://apis.mappls.com/advancedmaps/api/${accessToken}/map_sdk_plugins?v=3.0&libraries=search,getPinDetails,marker`;
       script.async = true;
       script.onload = () => {
-        if (window.mappls && window.mappls.search) {
+        if (window.mappls && window.mappls.search && window.mappls.getPinDetails) {
           resolve();
         } else {
           reject(new Error('map_sdk_plugins script loaded but window.mappls.search is still undefined'));
