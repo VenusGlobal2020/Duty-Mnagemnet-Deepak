@@ -4,7 +4,7 @@ import { X, MapPin, Search, Crosshair, Check, AlertTriangle } from 'lucide-react
 import { loadMappls, MAPPLS_KEY } from '../../utils/mapplsLoader';
 import api from '../../api/axios';
 
-const DEFAULT_CENTER = { lat: 25.4358, lng: 81.8463 }; // Prayagraj — sensible fallback for this dataset
+const DEFAULT_CENTER = { lat: 25.1337, lng: 82.5644 }; // Mirzapur — sensible fallback for this dataset
 const DEFAULT_ZOOM = 13;
 
 // Pulls a {lat,lng} pair out of whatever shape a Mappls SDK callback/event
