@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MapPin, Search, Crosshair, Check, AlertTriangle } from 'lucide-react';
 import { loadMappls, MAPPLS_KEY } from '../../utils/mapplsLoader';
+import api from '../../api/axios';
 
 const DEFAULT_CENTER = { lat: 25.4358, lng: 81.8463 }; // Prayagraj — sensible fallback for this dataset
 const DEFAULT_ZOOM = 13;
@@ -93,6 +94,14 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
   const [mapReady, setMapReady] = useState(false);
   const [sdkError, setSdkError] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [resolvingIndex, setResolvingIndex] = useState(-1);
+
+  const resetSearch = () => {
+    setSearchResults([]);
+    setSearchInput('');
+    setSearchError('');
+  };
 
   // Mount / unmount the actual Mappls map whenever the modal opens.
   // Follows the same init sequence proven to work elsewhere in this app
@@ -250,11 +259,114 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
     );
   };
 
+  // Resolves one search result to an actual {lat,lng} and drops the pin
+  // there. Search results only carry an eLoc (Mappls' place-id) — not raw
+  // coordinates — so this tries, in order: (1) any lat/lng Mappls happens to
+  // include directly, (2) the getPinDetails plugin, (3) rendering an
+  // eLoc-based marker directly, (4) our own backend, which geocodes the
+  // address text via Mappls' Address Verification REST API — a different
+  // product from the web-SDK plugins that does return real coordinates.
+  const resolveAndSelect = async (item, index) => {
+    setSearchError('');
+    setResolvingIndex(index);
+
+    const direct = extractLatLng(item);
+    if (direct) {
+      moveMarkerTo(direct.lat, direct.lng);
+      setSearchResults([]);
+      setResolvingIndex(-1);
+      return;
+    }
+
+    // Attempt 1: getPinDetails
+    if (item.eLoc && typeof window.mappls?.getPinDetails === 'function') {
+      try {
+        const details = await new Promise((resolve) => {
+          window.mappls.getPinDetails({ pin: item.eLoc }, (d) => resolve(d));
+        });
+        console.log('[LocationPickerMap] getPinDetails response:', details);
+        const list = Array.isArray(details) ? details : [details?.data ?? details];
+        const pos = extractLatLng(list[0]);
+        if (pos) {
+          moveMarkerTo(pos.lat, pos.lng);
+          setSearchResults([]);
+          setResolvingIndex(-1);
+          return;
+        }
+      } catch (err) {
+        console.warn('[LocationPickerMap] getPinDetails threw:', err);
+      }
+    }
+
+    // Attempt 2: place a marker directly by eLoc via the marker plugin —
+    // it resolves eLoc → position internally to actually draw the pin, so
+    // reading the resulting marker's position back out sidesteps the
+    // lat/lng field being withheld everywhere else.
+    if (item.eLoc && typeof window.mappls?.elocMarker === 'function') {
+      try {
+        const map = mapRef.current;
+        const markerObj = await new Promise((resolve, reject) => {
+          try {
+            const obj = new window.mappls.elocMarker({ map, pin: [item.eLoc], fitbounds: true }, (data) => {
+              console.log('[LocationPickerMap] elocMarker response:', data);
+              resolve({ obj, data });
+            });
+            setTimeout(() => resolve({ obj, data: null }), 1500);
+          } catch (err) { reject(err); }
+        });
+        const fromCallback = markerObj.data ? extractLatLng(Array.isArray(markerObj.data) ? markerObj.data[0] : markerObj.data) : null;
+        const fromObj = fromCallback || extractLatLng(
+          typeof markerObj.obj?.getLngLat === 'function' ? markerObj.obj.getLngLat() : markerObj.obj
+        );
+        if (fromObj) {
+          try { markerObj.obj.remove?.(); } catch { /* ignore */ }
+          moveMarkerTo(fromObj.lat, fromObj.lng);
+          setSearchResults([]);
+          setResolvingIndex(-1);
+          return;
+        }
+        try { markerObj.obj.remove?.(); } catch { /* ignore */ }
+      } catch (err) {
+        console.warn('[LocationPickerMap] elocMarker threw:', err);
+      }
+    }
+
+    // Attempt 3: our backend, geocoding the address text via Mappls'
+    // Address Verification REST API (a different product from the web-SDK
+    // plugins — this one does return real coordinates on this account).
+    const addressToGeocode = item.placeAddress || item.address || item.placeName || item.name;
+    if (addressToGeocode) {
+      try {
+        const center = mapRef.current?.getCenter ? extractLatLng(mapRef.current.getCenter()) : null;
+        const { data } = await api.post('/mappls/geocode', {
+          address: addressToGeocode,
+          lat: center?.lat,
+          lng: center?.lng,
+        });
+        console.log('[LocationPickerMap] backend geocode response:', data);
+        const pos = extractLatLng(data?.data);
+        if (pos) {
+          moveMarkerTo(pos.lat, pos.lng);
+          setSearchResults([]);
+          setResolvingIndex(-1);
+          return;
+        }
+      } catch (err) {
+        console.warn('[LocationPickerMap] backend geocode failed:', err?.response?.data || err.message);
+      }
+    }
+
+    console.error('[LocationPickerMap] Could not resolve to coordinates via any method for:', item);
+    setSearchError('इस स्थान के निर्देशांक नहीं मिल सके। कृपया मानचित्र पर सीधे टैप करके स्थान चुनें।');
+    setResolvingIndex(-1);
+  };
+
   const handleSearch = async (e) => {
     e.preventDefault();
     const query = searchInput.trim();
     if (!query) return;
     setSearchError('');
+    setSearchResults([]);
     setSearching(true);
 
     // Give the plugin one more chance to load right now (it retries and
@@ -275,29 +387,23 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
     const options = center ? { location: [center.lat, center.lng] } : {};
 
     try {
-      const found = await new Promise((resolve, reject) => {
+      const list = await new Promise((resolve, reject) => {
         try {
           // eslint-disable-next-line no-new
           new window.mappls.search(query, options, (data) => {
             console.log('[LocationPickerMap] mappls.search raw response:', data);
-            const list = Array.isArray(data) ? data : (data?.results || data?.suggestedLocations || []);
-            const first = list?.[0];
-            const pos = first ? extractLatLng(first) : null;
-            if (first && !pos) {
-              console.warn('[LocationPickerMap] Got results but could not find lat/lng. First result keys:', Object.keys(first), 'value:', first);
-            }
-            if (pos) {
-              moveMarkerTo(pos.lat, pos.lng);
-              resolve(true);
-            } else {
-              resolve(false);
-            }
+            resolve(Array.isArray(data) ? data : (data?.results || data?.suggestedLocations || []));
           });
         } catch (err) {
           reject(err);
         }
       });
-      if (!found) setSearchError('कोई परिणाम नहीं मिला। कोई और नाम/पता आज़माएं, या मानचित्र पर सीधे टैप करें।');
+
+      if (!list.length) {
+        setSearchError('कोई परिणाम नहीं मिला। कोई और नाम/पता आज़माएं, या मानचित्र पर सीधे टैप करें।');
+      } else {
+        setSearchResults(list.slice(0, 8));
+      }
     } catch (err) {
       console.error('[LocationPickerMap] mappls.search threw an error:', err);
       setSearchError('खोज में समस्या हुई। मानचित्र पर सीधे टैप करके स्थान चुनें।');
@@ -306,27 +412,33 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
     }
   };
 
+  const handleClose = () => {
+    onClose();
+    resetSearch();
+  };
+
   const handleConfirm = () => {
     if (!picked) return;
     onConfirm(picked);
     onClose();
+    resetSearch();
   };
 
   return (
-    <PickerShell onClose={onClose}>
+    <PickerShell onClose={handleClose}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-ink-200/70 dark:border-white/[0.06] shrink-0">
         <div className="flex items-center gap-2">
           <MapPin className="w-4 h-4 text-signal-500" />
           <h2 className="text-base font-bold font-display text-ink-900 dark:text-white">ड्यूटी स्थान चुनें</h2>
         </div>
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-ink-100 dark:hover:bg-white/[0.06] transition-colors">
+        <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-ink-100 dark:hover:bg-white/[0.06] transition-colors">
           <X className="w-4 h-4 text-ink-500 dark:text-ink-400" />
         </button>
       </div>
 
       {/* Search + locate row */}
-      <div className="flex items-center gap-2 p-3 border-b border-ink-200/70 dark:border-white/[0.06] shrink-0">
+      <div className="relative flex items-center gap-2 p-3 border-b border-ink-200/70 dark:border-white/[0.06] shrink-0">
         <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-400" />
@@ -355,6 +467,31 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
         >
           <Crosshair className={`w-3.5 h-3.5 ${locating ? 'animate-spin' : ''}`} />
         </button>
+
+        {searchResults.length > 0 && (
+          <div className="absolute left-3 right-3 top-full mt-1 max-h-56 overflow-y-auto bg-white dark:bg-ink-800 border border-ink-200/70 dark:border-white/[0.08] rounded-lg shadow-xl z-[1000000]">
+            {searchResults.map((item, idx) => (
+              <button
+                key={item.eLoc || idx}
+                type="button"
+                onClick={() => {
+                  resolveAndSelect(item, idx);
+                  setSearchInput("")
+                  setSearchResults([])
+                }}
+                disabled={resolvingIndex !== -1}
+                className="w-full text-left px-3 py-2 hover:bg-ink-100 dark:hover:bg-white/[0.06] transition-colors border-b border-ink-100 dark:border-white/[0.04] last:border-b-0 disabled:opacity-60"
+              >
+                <div className="text-sm font-medium text-ink-900 dark:text-white truncate">
+                  {resolvingIndex === idx ? 'ढूंढ रहे हैं...' : (item.placeName || item.name || 'स्थान')}
+                </div>
+                {item.placeAddress && (
+                  <div className="text-xs text-ink-500 dark:text-ink-400 truncate">{item.placeAddress}</div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {searchError && (
@@ -364,7 +501,7 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
       )}
 
       {/* Map canvas */}
-      <div className="relative h-[55vh] min-h-[380px]">
+      <div className="relative h-[55vh] min-h-[300px]">
         <div ref={mapElRef} className="absolute inset-0" />
         {sdkError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-6 bg-ink-50 dark:bg-ink-800/60">
@@ -383,14 +520,14 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between gap-3 p-4 border-t border-ink-200/70 dark:border-white/[0.06] shrink-0">
+      <div className="flex md:flex-row flex-col items-center justify-between gap-3 p-4 border-t border-ink-200/70 dark:border-white/[0.06] shrink-0">
         <div className="text-xs text-ink-500 dark:text-ink-400 font-mono">
           {picked
             ? `${picked.lat.toFixed(6)}, ${picked.lng.toFixed(6)}`
             : 'अभी तक कोई स्थान नहीं चुना गया'}
         </div>
         <div className="flex gap-2">
-          <button onClick={onClose} className="btn-secondary text-sm py-1.5 px-3">रद्द करें</button>
+          <button onClick={handleClose} className="btn-secondary text-sm py-1.5 px-3">रद्द करें</button>
           <button onClick={handleConfirm} disabled={!picked} className="btn-primary text-sm py-1.5 px-3">
             <Check className="w-3.5 h-3.5" /> यह स्थान उपयोग करें
           </button>
