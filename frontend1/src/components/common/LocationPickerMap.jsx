@@ -260,16 +260,16 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
   };
 
   // Resolves one search result to an actual {lat,lng} and drops the pin
-  // there. Search results only carry an eLoc (Mappls' place-id) — not raw
-  // coordinates — so this tries, in order: (1) any lat/lng Mappls happens to
-  // include directly, (2) the getPinDetails plugin, (3) rendering an
-  // eLoc-based marker directly, (4) our own backend, which geocodes the
-  // address text via Mappls' Address Verification REST API — a different
-  // product from the web-SDK plugins that does return real coordinates.
+  // there. Mappls search results only carry an eLoc (place-id) — not raw
+  // coordinates — so this asks our own backend to geocode the result's
+  // address text (Mappls Address Verification REST API first, falling back
+  // to Nominatim), which does return real coordinates.
   const resolveAndSelect = async (item, index) => {
     setSearchError('');
     setResolvingIndex(index);
 
+    // Rare defensive case: some result shape already carries a usable
+    // lat/lng pair directly — use it and skip the network round-trip.
     const direct = extractLatLng(item);
     if (direct) {
       moveMarkerTo(direct.lat, direct.lng);
@@ -278,62 +278,6 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
       return;
     }
 
-    // Attempt 1: getPinDetails
-    if (item.eLoc && typeof window.mappls?.getPinDetails === 'function') {
-      try {
-        const details = await new Promise((resolve) => {
-          window.mappls.getPinDetails({ pin: item.eLoc }, (d) => resolve(d));
-        });
-        console.log('[LocationPickerMap] getPinDetails response:', details);
-        const list = Array.isArray(details) ? details : [details?.data ?? details];
-        const pos = extractLatLng(list[0]);
-        if (pos) {
-          moveMarkerTo(pos.lat, pos.lng);
-          setSearchResults([]);
-          setResolvingIndex(-1);
-          return;
-        }
-      } catch (err) {
-        console.warn('[LocationPickerMap] getPinDetails threw:', err);
-      }
-    }
-
-    // Attempt 2: place a marker directly by eLoc via the marker plugin —
-    // it resolves eLoc → position internally to actually draw the pin, so
-    // reading the resulting marker's position back out sidesteps the
-    // lat/lng field being withheld everywhere else.
-    if (item.eLoc && typeof window.mappls?.elocMarker === 'function') {
-      try {
-        const map = mapRef.current;
-        const markerObj = await new Promise((resolve, reject) => {
-          try {
-            const obj = new window.mappls.elocMarker({ map, pin: [item.eLoc], fitbounds: true }, (data) => {
-              console.log('[LocationPickerMap] elocMarker response:', data);
-              resolve({ obj, data });
-            });
-            setTimeout(() => resolve({ obj, data: null }), 1500);
-          } catch (err) { reject(err); }
-        });
-        const fromCallback = markerObj.data ? extractLatLng(Array.isArray(markerObj.data) ? markerObj.data[0] : markerObj.data) : null;
-        const fromObj = fromCallback || extractLatLng(
-          typeof markerObj.obj?.getLngLat === 'function' ? markerObj.obj.getLngLat() : markerObj.obj
-        );
-        if (fromObj) {
-          try { markerObj.obj.remove?.(); } catch { /* ignore */ }
-          moveMarkerTo(fromObj.lat, fromObj.lng);
-          setSearchResults([]);
-          setResolvingIndex(-1);
-          return;
-        }
-        try { markerObj.obj.remove?.(); } catch { /* ignore */ }
-      } catch (err) {
-        console.warn('[LocationPickerMap] elocMarker threw:', err);
-      }
-    }
-
-    // Attempt 3: our backend, geocoding the address text via Mappls'
-    // Address Verification REST API (a different product from the web-SDK
-    // plugins — this one does return real coordinates on this account).
     const addressToGeocode = item.placeAddress || item.address || item.placeName || item.name;
     if (addressToGeocode) {
       try {
@@ -343,7 +287,6 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
           lat: center?.lat,
           lng: center?.lng,
         });
-        console.log('[LocationPickerMap] backend geocode response:', data);
         const pos = extractLatLng(data?.data);
         if (pos) {
           moveMarkerTo(pos.lat, pos.lng);
@@ -356,11 +299,16 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
       }
     }
 
-    console.error('[LocationPickerMap] Could not resolve to coordinates via any method for:', item);
+    console.error('[LocationPickerMap] Could not resolve to coordinates for:', item);
     setSearchError('इस स्थान के निर्देशांक नहीं मिल सके। कृपया मानचित्र पर सीधे टैप करके स्थान चुनें।');
     setResolvingIndex(-1);
   };
 
+  // Search now goes straight through our backend (GET /api/mappls/search),
+  // which calls Mappls' static-key Autosuggest REST API directly — no map
+  // SDK plugin bundle to load, no OAuth token, and it's the same rich
+  // Mappls POI database (shops, landmarks, etc.) the old plugin-based
+  // search was using anyway.
   const handleSearch = async (e) => {
     e.preventDefault();
     const query = searchInput.trim();
@@ -369,43 +317,24 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
     setSearchResults([]);
     setSearching(true);
 
-    // Give the plugin one more chance to load right now (it retries and
-    // logs the real reason to the console if it fails) instead of just
-    // giving up if it wasn't ready when the map first opened.
-    try {
-      await loadMappls();
-    } catch { /* base map already loaded if we got this far; ignore */ }
-
-    if (!window.mappls || typeof window.mappls.search !== 'function') {
-      console.error('[LocationPickerMap] window.mappls.search is unavailable — check the console above for why the plugin script failed.');
-      setSearchError('स्थान खोज अभी उपलब्ध नहीं है। मानचित्र पर सीधे टैप करें, या ब्राउज़र कंसोल में error देखें।');
-      setSearching(false);
-      return;
-    }
-
     const center = mapRef.current?.getCenter ? extractLatLng(mapRef.current.getCenter()) : null;
-    const options = center ? { location: [center.lat, center.lng] } : {};
 
     try {
-      const list = await new Promise((resolve, reject) => {
-        try {
-          // eslint-disable-next-line no-new
-          new window.mappls.search(query, options, (data) => {
-            console.log('[LocationPickerMap] mappls.search raw response:', data);
-            resolve(Array.isArray(data) ? data : (data?.results || data?.suggestedLocations || []));
-          });
-        } catch (err) {
-          reject(err);
-        }
+      const { data } = await api.get('/mappls/search', {
+        params: {
+          query,
+          lat: center?.lat,
+          lng: center?.lng,
+        },
       });
-
+      const list = data?.data?.results || [];
       if (!list.length) {
         setSearchError('कोई परिणाम नहीं मिला। कोई और नाम/पता आज़माएं, या मानचित्र पर सीधे टैप करें।');
       } else {
         setSearchResults(list.slice(0, 8));
       }
     } catch (err) {
-      console.error('[LocationPickerMap] mappls.search threw an error:', err);
+      console.error('[LocationPickerMap] Mappls search failed:', err?.response?.data || err.message);
       setSearchError('खोज में समस्या हुई। मानचित्र पर सीधे टैप करके स्थान चुनें।');
     } finally {
       setSearching(false);
