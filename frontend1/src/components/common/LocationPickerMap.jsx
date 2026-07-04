@@ -1,27 +1,60 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MapPin, Search, Crosshair, Check } from 'lucide-react';
-import L from 'leaflet';
+import { X, MapPin, Search, Crosshair, Check, AlertTriangle } from 'lucide-react';
+import { loadMappls, MAPPLS_KEY } from '../../utils/mapplsLoader';
 
-// Default marker icon paths break under bundlers since Leaflet's CSS
-// references relative image URLs that Vite doesn't resolve. We rebuild the
-// default icon using the package's bundled image assets, then reuse it everywhere.
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
-import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-
-const defaultIcon = L.icon({
-  iconUrl: markerIcon,
-  iconRetinaUrl: markerIcon2x,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-
-const DEFAULT_CENTER = [25.4358, 81.8463]; // Prayagraj — sensible fallback for this dataset
+const DEFAULT_CENTER = { lat: 25.4358, lng: 81.8463 }; // Prayagraj — sensible fallback for this dataset
 const DEFAULT_ZOOM = 13;
+
+// Pulls a {lat,lng} pair out of whatever shape a Mappls SDK callback/event
+// hands us — the SDK is fairly loose about this (plain {lat,lng} objects in
+// some places, [lat,lng] arrays in others, getLngLat()/lat()/lng() accessor
+// functions elsewhere) so every place we read a position goes through this
+// instead of assuming one specific shape.
+function toNum(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function extractLatLng(obj, _depth = 0) {
+  if (!obj || _depth > 3) return null;
+  if (typeof obj.getLngLat === 'function') return extractLatLng(obj.getLngLat(), _depth + 1);
+  if (typeof obj.lat === 'function' && typeof obj.lng === 'function') {
+    return { lat: obj.lat(), lng: obj.lng() };
+  }
+
+  const fieldPairs = [['lat', 'lng'], ['lat', 'lon'], ['latitude', 'longitude']];
+  for (const [latKey, lngKey] of fieldPairs) {
+    const lat = toNum(obj[latKey]);
+    const lng = toNum(obj[lngKey]);
+    if (lat !== null && lng !== null) return { lat, lng };
+  }
+
+  // "28.6139,77.2090" style combined string, under various key names
+  for (const key of ['location', 'latlng', 'lnglat', 'center']) {
+    if (typeof obj[key] === 'string' && obj[key].includes(',')) {
+      const parts = obj[key].split(',').map((s) => toNum(s.trim()));
+      if (parts[0] !== null && parts[1] !== null) return { lat: parts[0], lng: parts[1] };
+    }
+  }
+
+  // Nested shapes some SDK responses wrap coordinates in
+  for (const key of ['geometry', 'location', 'center', 'latlng', 'position', 'point']) {
+    if (obj[key] && typeof obj[key] === 'object') {
+      const nested = extractLatLng(obj[key].location || obj[key], _depth + 1);
+      if (nested) return nested;
+    }
+  }
+
+  if (Array.isArray(obj) && obj.length === 2 && Number.isFinite(toNum(obj[0])) && Number.isFinite(toNum(obj[1]))) {
+    return { lat: toNum(obj[0]), lng: toNum(obj[1]) };
+  }
+  return null;
+}
 
 // ─── Modal shell ──────────────────────────────────────────────────────────────
 // Built directly with a portal (rather than reusing <Modal>) so we get full
@@ -57,86 +90,159 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
   const [searchInput, setSearchInput] = useState('');
   const [searching, setSearching] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [sdkError, setSdkError] = useState(false);
+  const [searchError, setSearchError] = useState('');
 
-  // Mount / unmount the actual Leaflet map whenever the modal opens.
-  // Leaflet needs a real, visible DOM node at init time, so this only runs post-render.
+  // Mount / unmount the actual Mappls map whenever the modal opens.
+  // Follows the same init sequence proven to work elsewhere in this app
+  // (MapView.jsx): assign a real DOM id, force explicit container sizing,
+  // wait two animation frames for layout to settle, then construct the map
+  // and only touch it once its 'load' event has actually fired.
   useEffect(() => {
     if (!isOpen || !mapElRef.current) return;
+    if (!MAPPLS_KEY) { setSdkError(true); return; }
+
+    let destroyed = false;
+    setMapReady(false);
+    setSdkError(false);
 
     const hasInitial = Number.isFinite(initialLat) && Number.isFinite(initialLng);
-    const center = hasInitial ? [initialLat, initialLng] : DEFAULT_CENTER;
+    const center = hasInitial ? { lat: initialLat, lng: initialLng } : DEFAULT_CENTER;
 
-    const map = L.map(mapElRef.current, {
-      center,
-      zoom: hasInitial ? 15 : DEFAULT_ZOOM,
-      zoomControl: true,
-    });
-    mapRef.current = map;
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map);
-
-    if (hasInitial) {
-      const m = L.marker(center, { icon: defaultIcon, draggable: true }).addTo(map);
-      markerRef.current = m;
-      m.on('dragend', () => {
-        const { lat, lng } = m.getLatLng();
-        setPicked({ lat, lng });
-      });
-      setPicked({ lat: initialLat, lng: initialLng });
-    }
-
-    // Tap/click anywhere on the map drops (or moves) the pin.
+    // Drops (or moves) the draggable pin and records the picked position.
     const dropPin = (lat, lng) => {
+      const map = mapRef.current;
+      if (!map) return;
       if (markerRef.current) {
-        markerRef.current.setLatLng([lat, lng]);
+        const m = markerRef.current;
+        if (typeof m.setLngLat === 'function') m.setLngLat({ lat, lng });
+        else if (typeof m.setPosition === 'function') m.setPosition({ lat, lng });
       } else {
-        const m = L.marker([lat, lng], { icon: defaultIcon, draggable: true }).addTo(map);
+        const m = new window.mappls.Marker({ map, position: { lat, lng }, draggable: true, fitbounds: false });
+        const onDragEnd = () => {
+          const pos = extractLatLng(typeof m.getLngLat === 'function' ? m.getLngLat() : m);
+          if (pos) setPicked(pos);
+        };
+        if (typeof m.addListener === 'function') m.addListener('dragend', onDragEnd);
+        else if (typeof m.on === 'function') m.on('dragend', onDragEnd);
         markerRef.current = m;
-        m.on('dragend', () => {
-          const pos = m.getLatLng();
-          setPicked({ lat: pos.lat, lng: pos.lng });
-        });
       }
       setPicked({ lat, lng });
     };
 
-    map.on('click', (e) => dropPin(e.latlng.lat, e.latlng.lng));
+    loadMappls().then(() => {
+      if (destroyed || !mapElRef.current) return;
 
-    // Fix Leaflet's tile sizing — modals render after CSS layout settles, so
-    // the canvas can initialize with a stale (zero/partial) size otherwise.
-    setTimeout(() => map.invalidateSize(), 80);
+      // Mappls' Map constructor expects the container's DOM id (a string),
+      // NOT the element reference itself.
+      if (!mapElRef.current.id) {
+        mapElRef.current.id = `mappls-picker-${Math.random().toString(36).slice(2)}`;
+      }
+      mapElRef.current.style.width = '100%';
+      mapElRef.current.style.height = '100%';
+
+      const raf1 = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (destroyed || !mapElRef.current) return;
+
+          const map = new window.mappls.Map(mapElRef.current.id, {
+            center,
+            zoom: hasInitial ? 15 : DEFAULT_ZOOM,
+            zoomControl: true,
+          });
+          mapRef.current = map;
+
+          const onMapReady = () => {
+            if (destroyed) return;
+            const doResize = () => {
+              if (map.resize) map.resize();
+              window.dispatchEvent(new Event('resize'));
+            };
+            doResize();
+            setTimeout(doResize, 100);
+            setTimeout(doResize, 400);
+            setTimeout(doResize, 900);
+
+            if (hasInitial) dropPin(initialLat, initialLng);
+
+            if (typeof map.addListener === 'function') {
+              map.addListener('click', (e) => {
+                const pos = extractLatLng(e?.lngLat ?? e?.latlng ?? e);
+                if (pos) dropPin(pos.lat, pos.lng);
+              });
+            }
+
+            setMapReady(true);
+          };
+
+          if (typeof map.addListener === 'function') {
+            map.addListener('load', onMapReady);
+          } else {
+            setTimeout(onMapReady, 800);
+          }
+
+          const onWindowResize = () => { if (map.resize) map.resize(); };
+          window.addEventListener('resize', onWindowResize);
+          map.__onWindowResize = onWindowResize;
+
+          let resizeObserver = null;
+          if (typeof ResizeObserver !== 'undefined' && mapElRef.current) {
+            resizeObserver = new ResizeObserver(() => {
+              if (mapRef.current?.resize) mapRef.current.resize();
+            });
+            resizeObserver.observe(mapElRef.current);
+          }
+          map.__resizeObserver = resizeObserver;
+        });
+      });
+      mapRef.current = { __raf1: raf1, remove: () => cancelAnimationFrame(raf1) };
+    }).catch(() => { if (!destroyed) setSdkError(true); });
 
     return () => {
-      map.remove();
-      mapRef.current = null;
+      destroyed = true;
+      if (mapRef.current?.__onWindowResize) window.removeEventListener('resize', mapRef.current.__onWindowResize);
+      if (mapRef.current?.__resizeObserver) mapRef.current.__resizeObserver.disconnect();
+      if (markerRef.current) { try { markerRef.current.remove(); } catch { /* ignore */ } }
       markerRef.current = null;
+      if (mapRef.current?.remove) mapRef.current.remove();
+      mapRef.current = null;
+      setPicked(null);
+      setMapReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   if (!isOpen) return null;
 
+  const moveMarkerTo = (lat, lng) => {
+    const map = mapRef.current;
+    if (!map || !map.setCenter) return;
+    map.setCenter({ lat, lng });
+    if (map.setZoom) map.setZoom(16);
+    if (markerRef.current) {
+      const m = markerRef.current;
+      if (typeof m.setLngLat === 'function') m.setLngLat({ lat, lng });
+      else if (typeof m.setPosition === 'function') m.setPosition({ lat, lng });
+    } else {
+      const m = new window.mappls.Marker({ map, position: { lat, lng }, draggable: true, fitbounds: false });
+      const onDragEnd = () => {
+        const pos = extractLatLng(typeof m.getLngLat === 'function' ? m.getLngLat() : m);
+        if (pos) setPicked(pos);
+      };
+      if (typeof m.addListener === 'function') m.addListener('dragend', onDragEnd);
+      else if (typeof m.on === 'function') m.on('dragend', onDragEnd);
+      markerRef.current = m;
+    }
+    setPicked({ lat, lng });
+  };
+
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) return;
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const { latitude, longitude } = pos.coords;
-        mapRef.current?.setView([latitude, longitude], 16);
-        if (markerRef.current) {
-          markerRef.current.setLatLng([latitude, longitude]);
-        } else {
-          const m = L.marker([latitude, longitude], { icon: defaultIcon, draggable: true }).addTo(mapRef.current);
-          markerRef.current = m;
-          m.on('dragend', () => {
-            const p = m.getLatLng();
-            setPicked({ lat: p.lat, lng: p.lng });
-          });
-        }
-        setPicked({ lat: latitude, lng: longitude });
+        moveMarkerTo(pos.coords.latitude, pos.coords.longitude);
         setLocating(false);
       },
       () => setLocating(false),
@@ -146,31 +252,55 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    if (!searchInput.trim()) return;
+    const query = searchInput.trim();
+    if (!query) return;
+    setSearchError('');
     setSearching(true);
+
+    // Give the plugin one more chance to load right now (it retries and
+    // logs the real reason to the console if it fails) instead of just
+    // giving up if it wasn't ready when the map first opened.
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(searchInput.trim())}`
-      );
-      const results = await res.json();
-      if (results?.[0]) {
-        const lat = parseFloat(results[0].lat);
-        const lng = parseFloat(results[0].lon);
-        mapRef.current?.setView([lat, lng], 15);
-        if (markerRef.current) {
-          markerRef.current.setLatLng([lat, lng]);
-        } else {
-          const m = L.marker([lat, lng], { icon: defaultIcon, draggable: true }).addTo(mapRef.current);
-          markerRef.current = m;
-          m.on('dragend', () => {
-            const p = m.getLatLng();
-            setPicked({ lat: p.lat, lng: p.lng });
+      await loadMappls();
+    } catch { /* base map already loaded if we got this far; ignore */ }
+
+    if (!window.mappls || typeof window.mappls.search !== 'function') {
+      console.error('[LocationPickerMap] window.mappls.search is unavailable — check the console above for why the plugin script failed.');
+      setSearchError('स्थान खोज अभी उपलब्ध नहीं है। मानचित्र पर सीधे टैप करें, या ब्राउज़र कंसोल में error देखें।');
+      setSearching(false);
+      return;
+    }
+
+    const center = mapRef.current?.getCenter ? extractLatLng(mapRef.current.getCenter()) : null;
+    const options = center ? { location: [center.lat, center.lng] } : {};
+
+    try {
+      const found = await new Promise((resolve, reject) => {
+        try {
+          // eslint-disable-next-line no-new
+          new window.mappls.search(query, options, (data) => {
+            console.log('[LocationPickerMap] mappls.search raw response:', data);
+            const list = Array.isArray(data) ? data : (data?.results || data?.suggestedLocations || []);
+            const first = list?.[0];
+            const pos = first ? extractLatLng(first) : null;
+            if (first && !pos) {
+              console.warn('[LocationPickerMap] Got results but could not find lat/lng. First result keys:', Object.keys(first), 'value:', first);
+            }
+            if (pos) {
+              moveMarkerTo(pos.lat, pos.lng);
+              resolve(true);
+            } else {
+              resolve(false);
+            }
           });
+        } catch (err) {
+          reject(err);
         }
-        setPicked({ lat, lng });
-      }
-    } catch {
-      // Silent fail — search is a convenience, not a requirement; user can still tap the map directly.
+      });
+      if (!found) setSearchError('कोई परिणाम नहीं मिला। कोई और नाम/पता आज़माएं, या मानचित्र पर सीधे टैप करें।');
+    } catch (err) {
+      console.error('[LocationPickerMap] mappls.search threw an error:', err);
+      setSearchError('खोज में समस्या हुई। मानचित्र पर सीधे टैप करके स्थान चुनें।');
     } finally {
       setSearching(false);
     }
@@ -210,7 +340,7 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
           </div>
           <button
             type="submit"
-            disabled={searching}
+            disabled={searching || !mapReady}
             className="btn-secondary text-xs px-3 py-1.5 shrink-0"
           >
             {searching ? '...' : 'खोजें'}
@@ -219,7 +349,7 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
         <button
           type="button"
           onClick={handleUseMyLocation}
-          disabled={locating}
+          disabled={locating || !mapReady}
           title="मेरा वर्तमान स्थान उपयोग करें"
           className="btn-secondary text-xs px-3 py-1.5 shrink-0"
         >
@@ -227,9 +357,26 @@ export default function LocationPickerMap({ isOpen, onClose, onConfirm, initialL
         </button>
       </div>
 
+      {searchError && (
+        <div className="px-3 py-1.5 text-xs text-signal-600 dark:text-signal-400 bg-signal-50 dark:bg-signal-900/20 border-b border-ink-200/70 dark:border-white/[0.06]">
+          {searchError}
+        </div>
+      )}
+
       {/* Map canvas */}
-      <div className="relative flex-1 min-h-[360px]">
+      <div className="relative h-[55vh] min-h-[380px]">
         <div ref={mapElRef} className="absolute inset-0" />
+        {sdkError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-6 bg-ink-50 dark:bg-ink-800/60">
+            <AlertTriangle className="w-6 h-6 text-signal-500" />
+            <p className="text-sm text-ink-500 dark:text-ink-400">मानचित्र लोड नहीं हो सका। कृपया पुनः प्रयास करें।</p>
+          </div>
+        )}
+        {!sdkError && !mapReady && (
+          <div className="absolute inset-0 flex items-center justify-center bg-ink-50 dark:bg-ink-800/60">
+            <div className="w-6 h-6 border-2 border-signal2-300 border-t-signal2-500 rounded-full animate-spin" />
+          </div>
+        )}
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1000] bg-ink-900/90 text-white text-xs px-3 py-1.5 rounded-full font-medium pointer-events-none shadow-lg">
           पिन लगाने के लिए मानचित्र पर कहीं भी टैप करें
         </div>
