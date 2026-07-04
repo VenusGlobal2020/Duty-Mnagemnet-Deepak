@@ -14,6 +14,7 @@ const operatorRoutes = require('./routes/operatorRoutes');
 const officerRoutes = require('./routes/officerRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
+const mapplsRoutes = require('./routes/mapplsRoutes');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { startDutyStatusCron } = require('./jobs/dutyStatusCron');
@@ -69,6 +70,7 @@ app.use('/api/operator', operatorRoutes);
 app.use('/api/officer', officerRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/attendance', attendanceRoutes);  // ← NEW
+app.use('/api/mappls', mapplsRoutes);  // ← NEW: OAuth token for map_sdk_plugins (search)
 
 // Error handling
 app.use(notFound);
