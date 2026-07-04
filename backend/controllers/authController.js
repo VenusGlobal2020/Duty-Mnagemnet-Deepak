@@ -164,4 +164,21 @@ const getMe = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Profile fetched', { user });
 });
 
-module.exports = { login, refreshToken, forgotPassword, verifyPasswordOTP, resetPassword, changePassword, getMe };
+// @desc   Register/update this device's Firebase Cloud Messaging token so
+//         the server can push notifications to it. Called by the frontend
+//         right after login and whenever Firebase hands it a fresh token.
+//         A single token per user by design — logging in elsewhere simply
+//         overwrites the previous device's token.
+// @route  PATCH /api/auth/fcm-token
+const updateFcmToken = asyncHandler(async (req, res) => {
+  const { fcmToken } = req.body;
+  if (!fcmToken) return errorResponse(res, 400, 'fcmToken is required');
+
+  await User.findByIdAndUpdate(req.user._id, { fcmToken });
+  return successResponse(res, 200, 'Push notification token updated');
+});
+
+module.exports = {
+  login, refreshToken, forgotPassword, verifyPasswordOTP, resetPassword,
+  changePassword, getMe, updateFcmToken,
+};

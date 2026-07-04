@@ -30,7 +30,12 @@ const userSchema = new mongoose.Schema({
   // Password reset
   passwordResetOTP: { type: String, select: false },
   passwordResetOTPExpire: { type: Date, select: false },
-  // NOTE: fcmToken removed — Firebase push notifications removed from system
+  // Firebase Cloud Messaging token for this device/browser session — set via
+  // PATCH /api/auth/fcm-token whenever the client obtains/refreshes a token.
+  // A single field (not an array) by design: logging in on a new device
+  // simply overwrites the old token, matching how the frontend re-registers
+  // on every login/app load in utils/firebase.js.
+  fcmToken: { type: String, default: null },
   // Last login
   lastLogin: Date,
   // For officer — rank reference (denormalized for quick auth middleware access)

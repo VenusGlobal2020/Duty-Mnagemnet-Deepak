@@ -33,6 +33,7 @@ import NotificationsPage from './pages/shared/NotificationsPage';
 import ComingSoonPage from './pages/shared/ComingSoonPage';
 import MapView from './pages/shared/MapView';
 import LoadingSpinner from './components/common/LoadingSpinner';
+import usePushNotifications from './hooks/usePushNotifications';
 
 const ROLE_PATHS = {
   master: '/master', superadmin: '/superadmin', admin: '/admin',
@@ -55,6 +56,7 @@ const PublicRoute = ({ children }) => {
 };
 
 function AppRoutes() {
+  usePushNotifications();
   return (
     <Routes>
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />

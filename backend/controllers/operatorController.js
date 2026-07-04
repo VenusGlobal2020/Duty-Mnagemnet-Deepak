@@ -348,7 +348,7 @@ const createDuty = asyncHandler(async (req, res) => {
         recipientId: ao.officerRef.userRef,
         title: 'New Duty Assigned',
         body: `You have been assigned to duty: ${dutyName} at ${locationName}`,
-        type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
+        type: 'duty_assigned', relatedDuty: duty._id
       });
     }
   }
@@ -629,7 +629,7 @@ const updateDuty = asyncHandler(async (req, res) => {
   await duty.save();
 
   const updated = await Duty.findById(duty._id)
-    .populate('assignedOfficers.officerRef', 'name phone')
+    .populate('assignedOfficers.officerRef', 'name phone userRef')
     .populate('assignedOfficers.rankRef', 'name')
     .populate('rankRequirements.rankRef', 'name code color');
 
@@ -664,7 +664,7 @@ const updateDuty = asyncHandler(async (req, res) => {
         recipientId: officer.userRef,
         title: 'New Duty Assigned',
         body: `You have been assigned to duty: ${duty.dutyName} at ${duty.locationName}`,
-        type: 'duty_assigned', relatedDuty: duty._id, sendPush: false,
+        type: 'duty_assigned', relatedDuty: duty._id,
       });
     }
   }
@@ -676,7 +676,25 @@ const updateDuty = asyncHandler(async (req, res) => {
         recipientId: officer.userRef,
         title: 'Removed from Duty',
         body: `You have been removed from duty: ${duty.dutyName} — the operator reduced the required officer count.`,
-        type: 'duty_updated', relatedDuty: duty._id, sendPush: false,
+        type: 'duty_updated', relatedDuty: duty._id,
+      });
+    }
+  }
+
+  // Notify currently-assigned officers (still on the duty, not rejected/
+  // removed/replaced) about general duty field changes — e.g. timing,
+  // location, priority, description. Rank-count-driven add/remove above are
+  // reported separately with their own more specific messages.
+  if (changes) {
+    const stillOnDuty = updated.assignedOfficers.filter(
+      (ao) => ['assigned', 'accepted'].includes(ao.status) && ao.officerRef?.userRef
+    );
+    for (const ao of stillOnDuty) {
+      await createNotification({
+        recipientId: ao.officerRef.userRef,
+        title: 'Duty Updated',
+        body: `Duty "${duty.dutyName}" was updated by the operator. Changed: ${changes}`,
+        type: 'duty_updated', relatedDuty: duty._id,
       });
     }
   }
@@ -722,7 +740,7 @@ const deleteDuty = asyncHandler(async (req, res) => {
 // @route  PATCH /api/operator/duties/:dutyId/cancel
 const cancelDuty = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id })
-    .populate('assignedOfficers.officerRef', 'name phone')
+    .populate('assignedOfficers.officerRef', 'name phone userRef')
     .populate('assignedOfficers.rankRef', 'name');
   if (!duty) return errorResponse(res, 404, 'Duty not found');
   if (duty.status === 'cancelled') return errorResponse(res, 400, 'Already cancelled');
@@ -734,10 +752,21 @@ const cancelDuty = asyncHandler(async (req, res) => {
     $push: { timeline: { action: 'DUTY_CANCELLED', performedBy: req.user._id, note: reason || 'Cancelled by operator' } }
   });
 
-  // Notify all assigned officers
-  for (const ao of duty.assignedOfficers) {
-    if (ao.officerRef?.phone && ao.status !== 'rejected') {
+  // Notify only officers CURRENTLY assigned to this duty (status 'assigned'
+  // or 'accepted') — not officers who rejected it, nor officers who were
+  // swapped/replaced out and are no longer actually on the duty.
+  const currentlyAssigned = duty.assignedOfficers.filter((ao) => ['assigned', 'accepted'].includes(ao.status));
+  for (const ao of currentlyAssigned) {
+    if (ao.officerRef?.phone) {
       await notifyDutyCancelled(ao.officerRef.phone, ao.officerRef.name, duty.dutyName, reason);
+    }
+    if (ao.officerRef?.userRef) {
+      await createNotification({
+        recipientId: ao.officerRef.userRef,
+        title: 'Duty Cancelled',
+        body: `Duty "${duty.dutyName}" has been cancelled by the operator.${reason ? ` Reason: ${reason}` : ''}`,
+        type: 'duty_cancelled', relatedDuty: duty._id,
+      });
     }
   }
 
@@ -809,7 +838,7 @@ const replaceOfficer = asyncHandler(async (req, res) => {
       recipientId: officerUser._id,
       title: 'New Duty Assigned',
       body: `You have been assigned to duty: ${duty.dutyName}`,
-      type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
+      type: 'duty_assigned', relatedDuty: duty._id
     });
   }
 
@@ -890,7 +919,7 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
       recipientId: officerUser._id,
       title: 'New Duty Assigned',
       body: `You have been assigned to duty: ${duty.dutyName}`,
-      type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
+      type: 'duty_assigned', relatedDuty: duty._id
     });
   }
 
