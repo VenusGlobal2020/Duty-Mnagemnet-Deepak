@@ -1,6 +1,6 @@
 const axios = require('axios');
 const TrackLog = require('../models/TrackLog');
-const { getDistanceMeters, getDateStr } = require('../utils/geo');
+const { getDistanceMeters } = require('../utils/geo');
 
 const FLASK_URL = process.env.FLASK_URL || 'http://localhost:8000';
 const FLASK_TIMEOUT_MS = 8000;
@@ -31,12 +31,10 @@ async function cleanPoints(points, previousLast) {
   }
 }
 
-async function appendPoints({ dutyId, officerUserId, points }) {
-  const today = getDateStr();
-
+async function appendPoints({ attendanceId, dutyId, officerUserId, date, points }) {
   const existing = await TrackLog.findOne(
-    { dutyRef: dutyId, officerUserRef: officerUserId, date: today },
-    { lastPointAt: 1, points: { $slice: -1 } }
+    { attendanceRef: attendanceId },
+    { points: { $slice: -1 } }
   );
 
   const previousLast = existing?.points?.[0]
@@ -53,9 +51,7 @@ async function appendPoints({ dutyId, officerUserId, points }) {
   let addedDistance = 0;
   let cursor = previousLast;
   for (const p of cleaned) {
-    if (cursor) {
-      addedDistance += getDistanceMeters(cursor.lat, cursor.lng, p.lat, p.lng);
-    }
+    if (cursor) addedDistance += getDistanceMeters(cursor.lat, cursor.lng, p.lat, p.lng);
     cursor = p;
   }
 
@@ -63,16 +59,13 @@ async function appendPoints({ dutyId, officerUserId, points }) {
   const lastTs = new Date(cleaned[cleaned.length - 1].recordedAt);
 
   const updated = await TrackLog.findOneAndUpdate(
-    { dutyRef: dutyId, officerUserRef: officerUserId, date: today },
+    { attendanceRef: attendanceId },
     {
-      $setOnInsert: { firstPointAt: firstTs },
+      $setOnInsert: { dutyRef: dutyId, officerUserRef: officerUserId, date, firstPointAt: firstTs },
       $set: { lastPointAt: lastTs },
       $inc: { pointCount: cleaned.length, totalDistanceMeters: Math.round(addedDistance) },
       $push: {
-        points: {
-          $each: cleaned,
-          $slice: -TrackLog.MAX_POINTS_PER_DAY,
-        },
+        points: { $each: cleaned, $slice: -TrackLog.MAX_POINTS_PER_SHIFT },
       },
     },
     { upsert: true, new: true }

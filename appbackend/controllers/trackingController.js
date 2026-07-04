@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const Attendance = require('../models/Attendance');
-require('../models/Duty'); // registers the Duty schema
+require('../models/Duty'); // registers the Duty schema (referenced by ObjectId)
 const trackingService = require('../services/trackingService');
 const { getDateStr } = require('../utils/geo');
 
@@ -23,7 +23,8 @@ const logTrack = async (req, res) => {
     const officerUserId = req.user._id;
     const today = getDateStr();
 
-    // Only accept points while officer is currently checked in (not checked out yet)
+    // Only accept points while an OPEN (checked-in, not checked-out)
+    // attendance record exists for this duty today — this IS the shift.
     const openAttendance = await Attendance.findOne({
       dutyRef: dutyId,
       officerUserRef: officerUserId,
@@ -39,7 +40,13 @@ const logTrack = async (req, res) => {
       });
     }
 
-    const result = await trackingService.appendPoints({ dutyId, officerUserId, points });
+    const result = await trackingService.appendPoints({
+      attendanceId: openAttendance._id, // ← this shift, exactly
+      dutyId,
+      officerUserId,
+      date: openAttendance.date,
+      points,
+    });
 
     return res.status(200).json({ success: true, message: 'Track points recorded', data: result });
   } catch (err) {
