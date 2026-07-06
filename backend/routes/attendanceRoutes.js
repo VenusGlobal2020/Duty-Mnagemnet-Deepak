@@ -6,6 +6,7 @@ const {
   getMyAttendance,
   getDutyAttendance,
   exportAttendancePDF,
+  getAttendanceTrack,
 } = require('../controllers/attendanceController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -32,6 +33,14 @@ router.get(
   '/duty/:dutyId/export-pdf',
   authorize('operator_special', 'operator_regular', 'admin'),
   exportAttendancePDF
+);
+
+// ← NEW: officer's GPS track (from the mobile app) for one attendance/shift —
+// used to draw the "Track Record" route on the map.
+router.get(
+  '/:attendanceId/track',
+  authorize('operator_special', 'operator_regular', 'admin', 'superadmin', 'master'),
+  getAttendanceTrack
 );
 
 module.exports = router;

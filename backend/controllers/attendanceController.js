@@ -3,6 +3,7 @@ const Attendance = require('../models/Attendance');
 const Duty = require('../models/Duty');
 const Officer = require('../models/Officer');
 const Rank = require('../models/Rank');
+const TrackLog = require('../models/TrackLog'); // ← NEW: officer GPS track, written by the mobile appbackend
 const { successResponse, errorResponse } = require('../utils/response');
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -1032,6 +1033,73 @@ const getAttendanceHistory = asyncHandler(async (req, res) => {
   });
 });
 
+// ─── OFFICER TRACK (GPS route recorded by the mobile app) ────────────────────
+
+// @desc   Get the GPS track recorded on the officer's mobile app for ONE
+//         specific attendance record (i.e. one check-in → check-out shift),
+//         for drawing as a route on a map (Mappls Polyline).
+//
+//         One Attendance document = one shift = at most one TrackLog
+//         (unique on attendanceRef), so passing the attendance's own _id is
+//         all that's needed — no separate dutyId/officerId/date lookup.
+// @route  GET /api/attendance/:attendanceId/track
+// @access Operator (own duties), Admin/Superadmin (their hierarchy), Master (all)
+const getAttendanceTrack = asyncHandler(async (req, res) => {
+  const { attendanceId } = req.params;
+  const role = req.user.role;
+
+  const attendance = await Attendance.findById(attendanceId)
+    .populate('officerRef', 'name badgeNumber phone')
+    .populate('dutyRef', 'dutyName locationName location sourceLocation destinationLocation dutyType');
+
+  if (!attendance) return errorResponse(res, 404, 'Attendance record not found');
+
+  // Same hierarchy scoping used everywhere else in this controller —
+  // operator/admin/superadmin can each only view attendance that actually
+  // belongs to their own chain; master has no restriction.
+  if (role === 'officer') {
+    return errorResponse(res, 403, 'Access denied');
+  } else if (
+    (role === 'operator_special' || role === 'operator_regular') &&
+    String(attendance.operatorRef) !== String(req.user._id)
+  ) {
+    return errorResponse(res, 403, 'Access denied');
+  } else if (role === 'admin' && String(attendance.adminRef) !== String(req.user._id)) {
+    return errorResponse(res, 403, 'Access denied');
+  } else if (role === 'superadmin' && String(attendance.superadminRef) !== String(req.user._id)) {
+    return errorResponse(res, 403, 'Access denied');
+  }
+
+  const track = await TrackLog.findOne({ attendanceRef: attendance._id });
+
+  return successResponse(res, 200, 'Track fetched', {
+    officer: attendance.officerRef
+      ? { name: attendance.officerRef.name, badgeNumber: attendance.officerRef.badgeNumber }
+      : null,
+    duty: attendance.dutyRef
+      ? {
+          dutyName: attendance.dutyRef.dutyName,
+          locationName: attendance.dutyRef.locationName,
+          location: attendance.dutyRef.location,
+          sourceLocation: attendance.dutyRef.sourceLocation,
+          destinationLocation: attendance.dutyRef.destinationLocation,
+          dutyType: attendance.dutyRef.dutyType,
+        }
+      : null,
+    date: attendance.date,
+    checkedInAt: attendance.checkedInAt,
+    checkedOutAt: attendance.checkedOutAt,
+    checkInLocation: attendance.checkInLocation,
+    checkOutLocation: attendance.checkOutLocation,
+    hasTrack: !!track,
+    points: track?.points || [],
+    pointCount: track?.pointCount || 0,
+    totalDistanceMeters: track?.totalDistanceMeters || 0,
+    firstPointAt: track?.firstPointAt || null,
+    lastPointAt: track?.lastPointAt || null,
+  });
+});
+
 module.exports = {
   checkIn,
   checkOut,
@@ -1039,4 +1107,5 @@ module.exports = {
   getDutyAttendance,
   exportAttendancePDF,
   getAttendanceHistory,
+  getAttendanceTrack,
 };
