@@ -207,8 +207,19 @@ const createDuty = asyncHandler(async (req, res) => {
     sourceLat, sourceLng, destLat, destLng,
   } = req.body;
 
-  if (!dutyName || !locationName || !lat || !lng || !startDate || !endDate || !priority) {
+  // MOBILITY duties don't use the standalone lat/lng fields at all — officers
+  // check IN near the source point and check OUT near the destination point,
+  // so only source/destination coordinates apply to them.
+  const isMobility = isSpecial && dutyType === 'MOBILITY';
+
+  if (!dutyName || !locationName || !startDate || !endDate || !priority) {
     return errorResponse(res, 400, 'Missing required fields');
+  }
+
+  // Non-MOBILITY duties (regular duties, VVIP, CITY-POINT, CRIMINAL) still
+  // need a direct lat/lng — only MOBILITY skips this in favor of source/dest.
+  if (!isMobility && (!lat || !lng)) {
+    return errorResponse(res, 400, 'Latitude and longitude are required');
   }
 
   if (new Date(startDate) >= new Date(endDate)) {
@@ -219,11 +230,10 @@ const createDuty = asyncHandler(async (req, res) => {
     return errorResponse(res, 400, 'Invalid duty type');
   }
 
-  // MOBILITY duties need both a source and a destination point — officers
-  // check IN near the source and check OUT near the destination.
+  // MOBILITY duties need both a source and a destination point.
   let sourceLocation = null;
   let destinationLocation = null;
-  if (isSpecial && dutyType === 'MOBILITY') {
+  if (isMobility) {
     if (!sourceLat || !sourceLng || !destLat || !destLng) {
       return errorResponse(res, 400, 'Source and destination coordinates are required for a MOBILITY duty');
     }
@@ -308,9 +318,17 @@ const createDuty = asyncHandler(async (req, res) => {
     }
   }
 
+  // For MOBILITY duties there's no standalone lat/lng from the form — use the
+  // source point as the duty's primary "location" so anything elsewhere that
+  // reads duty.location (map view, maps link, geo-fenced attendance fallback,
+  // etc.) keeps working without any further changes.
+  const dutyLocation = isMobility
+    ? sourceLocation
+    : { lat: parseFloat(lat), lng: parseFloat(lng) };
+
   const duty = await Duty.create({
     dutyName, locationName,
-    location: { lat: parseFloat(lat), lng: parseFloat(lng) },
+    location: dutyLocation,
     startDate: new Date(startDate), endDate: new Date(endDate),
     priority: parseInt(priority),
     ...(isSpecial && dutyType ? { dutyType } : {}),
@@ -504,6 +522,8 @@ const updateDuty = asyncHandler(async (req, res) => {
     return errorResponse(res, 400, 'End date must be after start date');
   }
 
+  // lat/lng on update remain fully optional (as before) — this naturally
+  // covers MOBILITY duties too, since they simply won't send these fields.
   if (req.body.lat || req.body.lng) {
     updateData.location = {
       lat: parseFloat(req.body.lat || duty.location.lat),
