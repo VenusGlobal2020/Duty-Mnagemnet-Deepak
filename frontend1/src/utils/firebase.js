@@ -2,19 +2,19 @@ import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyAfiY1S60MrkQO4tWdqVlZI4ReHIoyH1oQ",
+  authDomain: "notification-31d86.firebaseapp.com",
+  projectId: "notification-31d86",
+  storageBucket: "notification-31d86.firebasestorage.app",
+  messagingSenderId: "1046414852",
+  appId: "1:1046414852:web:11a726c4faca53f2059751",
+  measurementId: "G-CHVPM18D79"
 };
 
 let app, messaging;
 
 export const initFirebaseMessaging = async () => {
   try {
-    if (!import.meta.env.VITE_FIREBASE_API_KEY) return null;
     app = initializeApp(firebaseConfig);
     messaging = getMessaging(app);
 
@@ -22,7 +22,7 @@ export const initFirebaseMessaging = async () => {
     if (permission !== 'granted') return null;
 
     const token = await getToken(messaging, {
-      vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+      vapidKey: "BNiJX2pz0IdycogqLGmSv08zpVFT6sBzXhJ3O-t28edpWmQXdeAmMCpaMs2ZEpeuMbnLdgKpAmqq6pphkNxQG-c",
     });
     return token;
   } catch (error) {
@@ -32,6 +32,6 @@ export const initFirebaseMessaging = async () => {
 };
 
 export const onForegroundMessage = (callback) => {
-  if (!messaging) return () => {};
+  if (!messaging) return () => { };
   return onMessage(messaging, callback);
 };

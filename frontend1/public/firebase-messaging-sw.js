@@ -14,7 +14,7 @@ importScripts('https://www.gstatic.com/firebasejs/10.6.0/firebase-messaging-comp
 
 firebase.initializeApp({
 
-    storageBucket: 'PASTE_VITE_FIREBASE_STORAGE_BUCKET_HERE',
+    storageBucket: 'notification-31d86.firebasestorage.app',
     apiKey: "AIzaSyAfiY1S60MrkQO4tWdqVlZI4ReHIoyH1oQ",
     authDomain: "notification-31d86.firebaseapp.com",
     projectId: "notification-31d86",
