@@ -7,7 +7,7 @@ const TrackLog = require('../models/TrackLog'); // ← NEW: officer GPS track, w
 const { successResponse, errorResponse } = require('../utils/response');
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const CHECKIN_RADIUS_METERS = 1000; // 1 km
+const CHECKIN_RADIUS_METERS = 200; // 200m
 
 // ─── UTILITY ─────────────────────────────────────────────────────────────────
 
