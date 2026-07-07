@@ -24,6 +24,11 @@ const userSchema = new mongoose.Schema({
   suspendedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   suspendedAt: Date,
   suspendReason: String,
+  // Only meaningful for role === 'superadmin'. Set/updated by the master —
+  // caps how many admins this superadmin is allowed to create. 0 means the
+  // superadmin currently has no admin-creation quota (master hasn't granted
+  // one yet). Enforced in superadminController.createAdmin.
+  adminCreationLimit: { type: Number, default: 0, min: 0 },
   // Profile
   profileImage: { type: String },
   profileImagePublicId: { type: String },

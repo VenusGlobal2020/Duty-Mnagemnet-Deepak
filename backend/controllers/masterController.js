@@ -19,58 +19,84 @@ const createSuperadmin = asyncHandler(async (req, res) => {
   const existing = await User.findOne({ role: 'superadmin' });
   if (existing) return errorResponse(res, 409, 'Superadmin (SP) already exists. Only one is allowed.');
 
-  const { name, email, phone, password, confirmPassword, gender, dateOfBirth } = req.body;
+  const { name, email, phone, password, confirmPassword, gender, dateOfBirth, adminCreationLimit } = req.body;
 
   if (password !== confirmPassword) return errorResponse(res, 400, 'Passwords do not match');
 
   const userExists = await User.findOne({ email: email.toLowerCase() });
   if (userExists) return errorResponse(res, 409, 'Email already registered');
 
+  // How many admins this superadmin may create — decided by the master at
+  // creation time. Defaults to 0 (no admins allowed) if not provided; the
+  // master can raise/lower this later via PATCH /master/superadmin/admin-limit.
+  const parsedLimit = adminCreationLimit !== undefined ? parseInt(adminCreationLimit) : 0;
+  if (Number.isNaN(parsedLimit) || parsedLimit < 0) {
+    return errorResponse(res, 400, 'Admin creation limit must be a non-negative number');
+  }
+
   const superadmin = await User.create({
-    name, email: email.toLowerCase(), phone, password, gender, dateOfBirth, role: 'superadmin'
+    name, email: email.toLowerCase(), phone, password, gender, dateOfBirth, role: 'superadmin',
+    adminCreationLimit: parsedLimit,
   });
 
   await sendWelcomeMessage(phone, name, 'Superadmin (SP)', email, password);
 
   return successResponse(res, 201, 'Superadmin created successfully', {
-    superadmin: { _id: superadmin._id, name, email, phone, role: superadmin.role }
+    superadmin: { _id: superadmin._id, name, email, phone, role: superadmin.role, adminCreationLimit: parsedLimit }
   });
 });
 
-// @desc   Get superadmin
+// @desc   Update how many admins the superadmin is allowed to create
+// @route  PATCH /api/master/superadmin/admin-limit
+const updateAdminCreationLimit = asyncHandler(async (req, res) => {
+  const { adminCreationLimit } = req.body;
+  const parsedLimit = parseInt(adminCreationLimit);
+  if (adminCreationLimit === undefined || Number.isNaN(parsedLimit) || parsedLimit < 0) {
+    return errorResponse(res, 400, 'Admin creation limit must be a non-negative number');
+  }
+
+  const superadmin = await User.findOne({ role: 'superadmin' });
+  if (!superadmin) return errorResponse(res, 404, 'Superadmin not found. Create one first.');
+
+  // Never let the master set a limit below the number of admins the
+  // superadmin has already created — that would silently make the count
+  // inconsistent with what's displayed. Master must suspend/remove admins
+  // first if they want to shrink below the existing count.
+  const existingAdminCount = await User.countDocuments({ superadminRef: superadmin._id, role: 'admin' });
+  if (parsedLimit < existingAdminCount) {
+    return errorResponse(res, 400, `Cannot set limit below ${existingAdminCount} — superadmin has already created ${existingAdminCount} admin(s)`);
+  }
+
+  superadmin.adminCreationLimit = parsedLimit;
+  await superadmin.save();
+
+  return successResponse(res, 200, 'Admin creation limit updated', {
+    adminCreationLimit: superadmin.adminCreationLimit,
+    adminsCreated: existingAdminCount,
+  });
+});
+
+// @desc   Get superadmin (includes admin-quota usage)
 // @route  GET /api/master/superadmin
 const getSuperadmin = asyncHandler(async (req, res) => {
   const superadmin = await User.findOne({ role: 'superadmin' }).select('-password');
-  return successResponse(res, 200, 'Superadmin fetched', { superadmin });
+  if (!superadmin) return successResponse(res, 200, 'Superadmin fetched', { superadmin: null });
+
+  const adminsCreated = await User.countDocuments({ superadminRef: superadmin._id, role: 'admin' });
+
+  return successResponse(res, 200, 'Superadmin fetched', {
+    superadmin: { ...superadmin.toObject(), adminsCreated }
+  });
 });
 
 // ─── ADMIN (ASP) MANAGEMENT ──────────────────────────────────────────────────
+// NOTE: Admin creation has moved to the superadmin (see
+// controllers/superadminController.js -> createAdmin), gated by
+// `superadmin.adminCreationLimit` which only the master can set (above).
+// Master retains full read-only visibility over every admin in the system.
 
-// @desc   Create admin (ASP)
-// @route  POST /api/master/admins
-const createAdmin = asyncHandler(async (req, res) => {
-  const superadmin = await User.findOne({ role: 'superadmin' });
-  if (!superadmin) return errorResponse(res, 400, 'Create superadmin first');
-
-  const { name, email, phone, password, confirmPassword, gender, dateOfBirth } = req.body;
-  if (password !== confirmPassword) return errorResponse(res, 400, 'Passwords do not match');
-
-  const exists = await User.findOne({ email: email.toLowerCase() });
-  if (exists) return errorResponse(res, 409, 'Email already registered');
-
-  const admin = await User.create({
-    name, email: email.toLowerCase(), phone, password, gender, dateOfBirth,
-    role: 'admin', superadminRef: superadmin._id
-  });
-
-  await sendWelcomeMessage(phone, name, 'Admin (ACP)', email, password);
-
-  return successResponse(res, 201, 'Admin created successfully', {
-    admin: { _id: admin._id, name, email, phone, role: admin.role }
-  });
-});
-
-// @desc   Get all admins
+// @desc   Get all admins (read-only, full info — across every superadmin)
+// @route  GET /api/master/admins
 // @route  GET /api/master/admins
 const getAdmins = asyncHandler(async (req, res) => {
   const { page, limit, search, status } = req.query;
@@ -139,18 +165,21 @@ const getDutiesForMap = asyncHandler(async (req, res) => {
 });
 
 // ─── SUSPEND / ACTIVATE ──────────────────────────────────────────────────────
+// Master can only suspend/activate the SUPERADMIN. Suspending/activating
+// admins and operators is now the superadmin's responsibility (see
+// controllers/superadminController.js), since admin creation itself moved
+// there. Suspending the superadmin here still cascades automatically to
+// every admin/operator/officer beneath them via the live hierarchy check in
+// utils/hierarchyStatus.js — no descendant documents need to be touched.
 
-// @desc   Suspend superadmin or admin
+// @desc   Suspend the superadmin
 // @route  PATCH /api/master/suspend/:userId
 const suspendUser = asyncHandler(async (req, res) => {
   const { reason } = req.body;
   if (!reason) return errorResponse(res, 400, 'Suspension reason required');
 
-  const user = await User.findOne({
-    _id: req.params.userId,
-    role: { $in: ['superadmin', 'admin'] }
-  });
-  if (!user) return errorResponse(res, 404, 'User not found');
+  const user = await User.findOne({ _id: req.params.userId, role: 'superadmin' });
+  if (!user) return errorResponse(res, 404, 'Superadmin not found');
   if (user.status === 'suspended') return errorResponse(res, 400, 'Already suspended');
 
   await User.findByIdAndUpdate(user._id, {
@@ -165,17 +194,14 @@ const suspendUser = asyncHandler(async (req, res) => {
     type: 'account_suspended', sendPush: false
   });
 
-  return successResponse(res, 200, `${user.role === 'superadmin' ? 'Superadmin' : 'Admin'} suspended`);
+  return successResponse(res, 200, 'Superadmin suspended. All admins and operators under this superadmin are now locked out.');
 });
 
-// @desc   Activate suspended user
+// @desc   Activate the superadmin
 // @route  PATCH /api/master/activate/:userId
 const activateUser = asyncHandler(async (req, res) => {
-  const user = await User.findOne({
-    _id: req.params.userId,
-    role: { $in: ['superadmin', 'admin'] }
-  });
-  if (!user) return errorResponse(res, 404, 'User not found');
+  const user = await User.findOne({ _id: req.params.userId, role: 'superadmin' });
+  if (!user) return errorResponse(res, 404, 'Superadmin not found');
   if (user.status === 'active') return errorResponse(res, 400, 'Already active');
 
   await User.findByIdAndUpdate(user._id, {
@@ -189,7 +215,7 @@ const activateUser = asyncHandler(async (req, res) => {
     type: 'account_activated', sendPush: false
   });
 
-  return successResponse(res, 200, 'Account activated');
+  return successResponse(res, 200, 'Superadmin activated');
 });
 
 // ─── RANK MANAGEMENT ─────────────────────────────────────────────────────────
@@ -380,8 +406,8 @@ const getAllOfficers = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  createSuperadmin, getSuperadmin,
-  createAdmin, getAdmins, getAdminDetails,
+  createSuperadmin, getSuperadmin, updateAdminCreationLimit,
+  getAdmins, getAdminDetails,
   suspendUser, activateUser,
   createRank, getRanks, updateRank, deleteRank,
   bulkUploadOfficers, getAllOfficers,

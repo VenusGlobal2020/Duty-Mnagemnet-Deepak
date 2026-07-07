@@ -4,7 +4,7 @@ const {
   getOfficers, addOfficer, updateOfficer, deleteOfficer,
   createDuty, getDuties, getDutyById, updateDuty, cancelDuty, deleteDuty,
   replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank,
-  getDutiesForMap,
+  getDutiesForMap, bulkCreateDuties,
 } = require('../controllers/operatorController');
 const {
   createDutyType, getDutyTypes, updateDutyType, deleteDutyType,
@@ -13,7 +13,7 @@ const {
   getSwapRequests, getSwapHistoryForDuty, getSwapCandidates, acceptSwapRequest, rejectSwapRequest, forceSwap,
 } = require('../controllers/swapController');
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { uploadDutyDoc } = require('../config/cloudinary');
+const { uploadDutyDoc, uploadOfficerExcel } = require('../config/cloudinary');
 
 router.use(protect, authorize('operator_special', 'operator_regular'));
 
@@ -29,11 +29,13 @@ router.route('/duty-types').get(getDutyTypes).post(createDutyType);
 router.route('/duty-types/:dutyTypeId').put(updateDutyType).delete(deleteDutyType);
 
 // Duties
-// NOTE: '/duties/map' must be declared before '/duties/:dutyId' for the same reason.
+// NOTE: '/duties/map' and '/duties/bulk-upload' must be declared before
+// '/duties/:dutyId' so Express doesn't treat them as a :dutyId value.
 router.route('/duties')
   .get(getDuties)
   .post(uploadDutyDoc.array('documents', 5), createDuty);
 router.get('/duties/map', getDutiesForMap);
+router.post('/duties/bulk-upload', uploadOfficerExcel.single('file'), bulkCreateDuties);
 router.route('/duties/:dutyId').get(getDutyById).put(updateDuty).delete(deleteDuty);
 router.patch('/duties/:dutyId/cancel', cancelDuty);
 router.patch('/duties/:dutyId/replace/:assignmentId', replaceOfficer);

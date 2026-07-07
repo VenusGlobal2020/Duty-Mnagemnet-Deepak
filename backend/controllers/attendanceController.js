@@ -295,11 +295,25 @@ const checkIn = asyncHandler(async (req, res) => {
     },
   };
 
-  const attendance = await Attendance.findOneAndUpdate(
-    { dutyRef: duty._id, officerRef: officer._id, date: today },
-    attendanceData,
-    { upsert: true, new: true }
-  );
+  let attendance;
+  try {
+    attendance = await Attendance.findOneAndUpdate(
+      { dutyRef: duty._id, officerRef: officer._id, date: today },
+      attendanceData,
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    // Defensive fallback: if a duplicate-key collision still slips through
+    // (e.g. two simultaneous check-in requests, or an index sync that
+    // hasn't run yet on this deployment — see config/db.js), don't leak a
+    // raw "Dutyref already exists" DB error. The only realistic cause of a
+    // collision on this exact (dutyRef, officerRef, date) key is that a
+    // check-in for today already exists, so say that plainly instead.
+    if (err.code === 11000) {
+      return errorResponse(res, 409, 'You have already checked in today for this duty');
+    }
+    throw err;
+  }
 
   return successResponse(res, 200, 'Check-in successful', {
     attendance: {

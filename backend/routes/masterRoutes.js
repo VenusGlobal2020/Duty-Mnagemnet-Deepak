@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const {
-  createSuperadmin, getSuperadmin,
-  createAdmin, getAdmins, getAdminDetails,
+  createSuperadmin, getSuperadmin, updateAdminCreationLimit,
+  getAdmins, getAdminDetails,
   suspendUser, activateUser,
   createRank, getRanks, updateRank, deleteRank,
   bulkUploadOfficers, getAllOfficers,
@@ -14,8 +14,15 @@ const { uploadOfficerExcel } = require('../config/cloudinary');
 router.use(protect, authorize('master'));
 
 router.route('/superadmin').post(createSuperadmin).get(getSuperadmin);
-router.route('/admins').post(createAdmin).get(getAdmins);
+router.patch('/superadmin/admin-limit', updateAdminCreationLimit);
+
+// Admin creation now belongs to the superadmin (see /api/superadmin/admins).
+// Master retains read-only visibility with full info across every admin.
+router.get('/admins', getAdmins);
 router.get('/admins/:adminId/details', getAdminDetails);
+
+// Master may only suspend/activate the superadmin — this cascades
+// automatically to every admin/operator/officer beneath them.
 router.patch('/suspend/:userId', suspendUser);
 router.patch('/activate/:userId', activateUser);
 

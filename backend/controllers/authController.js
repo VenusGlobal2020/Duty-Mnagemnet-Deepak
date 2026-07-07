@@ -5,6 +5,7 @@ const { generateOTP, hashOTP, verifyOTP } = require('../utils/otp');
 const { sendOTPWhatsApp } = require('../utils/whatsapp');
 const { sendOTPEmail } = require('../utils/email');
 const { successResponse, errorResponse } = require('../utils/response');
+const { getEffectiveSuspension } = require('../utils/hierarchyStatus');
 
 // @desc   Login
 // @route  POST /api/auth/login
@@ -15,11 +16,19 @@ const login = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
   if (!user) return errorResponse(res, 401, 'Invalid credentials');
 
-  if (user.status === 'suspended') return errorResponse(res, 403, 'Account suspended. Contact administrator.');
   if (user.status === 'inactive') return errorResponse(res, 403, 'Account is inactive.');
 
   const isMatch = await user.matchPassword(password);
   if (!isMatch) return errorResponse(res, 401, 'Invalid credentials');
+
+  // Hierarchy-aware suspension check — blocks login not only when this
+  // user's own account is suspended, but also when a parent in their chain
+  // (their admin, or the superadmin above that admin) has been suspended.
+  // This is what makes "suspend superadmin -> all admins/operators locked
+  // out" and "suspend admin -> its operators locked out" work immediately,
+  // even though those descendant accounts' own `status` field never changes.
+  const { suspended, reason } = await getEffectiveSuspension(user);
+  if (suspended) return errorResponse(res, 403, reason);
 
   await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 

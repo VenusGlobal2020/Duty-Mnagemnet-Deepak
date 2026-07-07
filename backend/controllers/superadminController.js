@@ -1,9 +1,60 @@
 const asyncHandler = require('express-async-handler');
+const xlsx = require('xlsx');
+const crypto = require('crypto');
 const User = require('../models/User');
 const Officer = require('../models/Officer');
+const Rank = require('../models/Rank');
 const Duty = require('../models/Duty');
 const Attendance = require('../models/Attendance');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
+const { sendWelcomeMessage, notifyAccountSuspended } = require('../utils/whatsapp');
+const { createNotification } = require('../utils/notificationService');
+
+const generateTempPassword = () => crypto.randomBytes(6).toString('hex');
+
+// ─── ADMIN (ASP) MANAGEMENT ──────────────────────────────────────────────────
+// Admin creation lives here (moved off the master) and is capped by
+// `req.user.adminCreationLimit`, a quota only the master can set/change
+// (see masterController.updateAdminCreationLimit).
+
+// @desc   Create admin (ASP) — capped by the quota the master granted
+// @route  POST /api/superadmin/admins
+const createAdmin = asyncHandler(async (req, res) => {
+  const limit = req.user.adminCreationLimit || 0;
+  const existingCount = await User.countDocuments({ superadminRef: req.user._id, role: 'admin' });
+
+  if (existingCount >= limit) {
+    return errorResponse(
+      res, 403,
+      limit === 0
+        ? 'You have no admin-creation quota yet. Contact the master to be granted one.'
+        : `Admin creation limit reached (${existingCount}/${limit}). Contact the master to raise your quota.`
+    );
+  }
+
+  const { name, email, phone, password, confirmPassword, gender, dateOfBirth } = req.body;
+  if (!name || !email || !phone || !password || !gender || !dateOfBirth) {
+    return errorResponse(res, 400, 'All fields are required');
+  }
+  if (password !== confirmPassword) return errorResponse(res, 400, 'Passwords do not match');
+  if (password.length < 8) return errorResponse(res, 400, 'Password must be at least 8 characters');
+  if (!/^[6-9]\d{9}$/.test(phone)) return errorResponse(res, 400, 'Enter a valid 10-digit Indian phone number');
+
+  const exists = await User.findOne({ email: email.toLowerCase() });
+  if (exists) return errorResponse(res, 409, 'Email already registered');
+
+  const admin = await User.create({
+    name, email: email.toLowerCase(), phone, password, gender, dateOfBirth,
+    role: 'admin', superadminRef: req.user._id
+  });
+
+  await sendWelcomeMessage(phone, name, 'Admin', email, password);
+
+  return successResponse(res, 201, 'Admin created successfully', {
+    admin: { _id: admin._id, name, email, phone, role: admin.role },
+    quota: { used: existingCount + 1, limit },
+  });
+});
 
 // @desc   Get all admins under this superadmin
 // @route  GET /api/superadmin/admins
@@ -22,7 +73,7 @@ const getAdmins = asyncHandler(async (req, res) => {
 // @desc   Get admin's operators and officers
 // @route  GET /api/superadmin/admins/:adminId/details
 const getAdminDetails = asyncHandler(async (req, res) => {
-  const admin = await User.findOne({ _id: req.params.adminId, superadminRef: req.user._id, role: 'admin' });
+  const admin = await User.findOne({ _id: req.params.adminId, superadminRef: req.user._id, role: 'admin' }).select('-password');
   if (!admin) return errorResponse(res, 404, 'Admin not found');
 
   const operators = await User.find({
@@ -35,6 +86,219 @@ const getAdminDetails = asyncHandler(async (req, res) => {
 
   return successResponse(res, 200, 'Admin details fetched', { admin, operators, officers });
 });
+
+// @desc   Get this superadmin's own admin-creation quota usage
+// @route  GET /api/superadmin/quota
+const getAdminQuota = asyncHandler(async (req, res) => {
+  const used = await User.countDocuments({ superadminRef: req.user._id, role: 'admin' });
+  return successResponse(res, 200, 'Quota fetched', { used, limit: req.user.adminCreationLimit || 0 });
+});
+
+// ─── SUSPEND / ACTIVATE (admins AND operators) ───────────────────────────────
+// The superadmin can suspend/activate any admin created under them, or any
+// operator belonging to one of those admins. Suspending an admin cascades
+// automatically to its operators/officers via the live hierarchy check in
+// utils/hierarchyStatus.js — no descendant documents need to be touched.
+
+// Ensures the target user (admin or operator) actually belongs to this
+// superadmin's own hierarchy before allowing a suspend/activate action.
+const assertOwnedByThisSuperadmin = async (superadminId, userId) => {
+  const target = await User.findById(userId);
+  if (!target) return null;
+
+  if (target.role === 'admin') {
+    return target.superadminRef?.toString() === superadminId.toString() ? target : null;
+  }
+  if (target.role === 'operator_special' || target.role === 'operator_regular') {
+    if (!target.adminRef) return null;
+    const parentAdmin = await User.findById(target.adminRef).select('superadminRef');
+    return parentAdmin?.superadminRef?.toString() === superadminId.toString() ? target : null;
+  }
+  return null;
+};
+
+// @desc   Suspend an admin or operator under this superadmin
+// @route  PATCH /api/superadmin/suspend/:userId
+const suspendUser = asyncHandler(async (req, res) => {
+  const { reason } = req.body;
+  if (!reason) return errorResponse(res, 400, 'Suspension reason required');
+
+  const user = await assertOwnedByThisSuperadmin(req.user._id, req.params.userId);
+  if (!user) return errorResponse(res, 404, 'User not found under your hierarchy');
+  if (user.status === 'suspended') return errorResponse(res, 400, 'Already suspended');
+
+  await User.findByIdAndUpdate(user._id, {
+    status: 'suspended', suspendedBy: req.user._id,
+    suspendedAt: new Date(), suspendReason: reason
+  });
+
+  await notifyAccountSuspended(user.phone, user.name, reason);
+  await createNotification({
+    recipientId: user._id, title: 'Account Suspended',
+    body: `Your account has been suspended. Reason: ${reason}`,
+    type: 'account_suspended', sendPush: false
+  });
+
+  const label = user.role === 'admin' ? 'Admin' : 'Operator';
+  return successResponse(res, 200, `${label} suspended${user.role === 'admin' ? '. All operators and officers under this admin are now locked out.' : ''}`);
+});
+
+// @desc   Activate a suspended admin or operator under this superadmin
+// @route  PATCH /api/superadmin/activate/:userId
+const activateUser = asyncHandler(async (req, res) => {
+  const user = await assertOwnedByThisSuperadmin(req.user._id, req.params.userId);
+  if (!user) return errorResponse(res, 404, 'User not found under your hierarchy');
+  if (user.status === 'active') return errorResponse(res, 400, 'Already active');
+
+  await User.findByIdAndUpdate(user._id, {
+    status: 'active',
+    $unset: { suspendedBy: 1, suspendedAt: 1, suspendReason: 1 }
+  });
+
+  await createNotification({
+    recipientId: user._id, title: 'Account Activated',
+    body: 'Your account has been reactivated. You can now log in.',
+    type: 'account_activated', sendPush: false
+  });
+
+  return successResponse(res, 200, `${user.role === 'admin' ? 'Admin' : 'Operator'} activated`);
+});
+
+// ─── EXCEL BULK OFFICER UPLOAD (same feature the master has, scoped to own hierarchy) ─
+
+// @desc   Bulk upload officers via Excel — admin must belong to this superadmin
+// @route  POST /api/superadmin/officers/bulk-upload
+const bulkUploadOfficers = asyncHandler(async (req, res) => {
+  if (!req.file) return errorResponse(res, 400, 'Excel file required');
+  const { adminId } = req.body;
+  if (!adminId) return errorResponse(res, 400, 'Admin ID required');
+
+  const admin = await User.findOne({ _id: adminId, role: 'admin', superadminRef: req.user._id });
+  if (!admin) return errorResponse(res, 404, 'Admin not found under your hierarchy');
+  if (admin.status !== 'active') return errorResponse(res, 400, 'Admin is not active');
+
+  const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rawRows = xlsx.utils.sheet_to_json(sheet);
+
+  if (rawRows.length === 0) return errorResponse(res, 400, 'Excel file is empty');
+
+  const FIELD_ALIASES = {
+    name: 'name',
+    email: 'email',
+    phone: 'phone',
+    gender: 'gender',
+    dateofbirth: 'dateOfBirth',
+    rankcode: 'rankCode',
+    badgenumber: 'badgeNumber',
+    designation: 'designation',
+  };
+
+  const normalizeRow = (row) => {
+    const normalized = {};
+    for (const key of Object.keys(row)) {
+      const cleanKey = key.trim().toLowerCase().replace(/[\s_-]/g, '');
+      const mappedKey = FIELD_ALIASES[cleanKey] || key;
+      normalized[mappedKey] = row[key];
+    }
+    return normalized;
+  };
+
+  const rows = rawRows.map(normalizeRow);
+  const total = rows.length;
+
+  // Same NDJSON streaming progress pattern used by the master's bulk upload
+  // (see masterController.bulkUploadOfficers) — kept consistent so the same
+  // frontend upload experience works for both roles.
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const sendEvent = (event) => res.write(JSON.stringify(event) + '\n');
+
+  const results = { created: 0, failed: [], skipped: 0 };
+  sendEvent({ type: 'start', total });
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      const { name, email, phone, gender, dateOfBirth, rankCode, badgeNumber, designation } = row;
+
+      if (!name || !email || !phone || !rankCode) {
+        results.failed.push({ row: name || email, reason: 'Missing required fields' });
+      } else if (!/^[6-9]\d{9}$/.test(String(phone))) {
+        results.failed.push({ row: email, reason: 'Invalid phone number' });
+      } else {
+        const rank = await Rank.findOne({ code: String(rankCode).toUpperCase(), isActive: true });
+        if (!rank) {
+          results.failed.push({ row: email, reason: `Rank code '${rankCode}' not found` });
+        } else {
+          const existingUser = await User.findOne({ email: email.toLowerCase() });
+          if (existingUser) {
+            results.skipped++;
+          } else {
+            const tempPassword = generateTempPassword();
+            const userDoc = await User.create({
+              name, email: email.toLowerCase(), phone: String(phone),
+              password: String(phone), gender: gender || 'male',
+              dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1990-01-01'),
+              role: 'officer', adminRef: adminId,
+              superadminRef: req.user._id, rankRef: rank._id,
+              badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
+              designation
+            });
+
+            await Officer.create({
+              userRef: userDoc._id, adminRef: adminId,
+              superadminRef: req.user._id,
+              name, phone: String(phone), email: email.toLowerCase(),
+              gender: gender || 'male',
+              dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
+              rankRef: rank._id, badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
+              designation
+            });
+
+            await sendWelcomeMessage(String(phone), name, `Officer (${rank.name})`, email, tempPassword);
+            results.created++;
+          }
+        }
+      }
+    } catch (err) {
+      results.failed.push({ row: row.email || row.name, reason: err.message });
+    }
+
+    sendEvent({
+      type: 'progress',
+      processed: i + 1,
+      total,
+      percent: Math.round(((i + 1) / total) * 100),
+      created: results.created,
+      skipped: results.skipped,
+      failed: results.failed.length,
+      lastRow: row.name || row.email || null,
+    });
+  }
+
+  sendEvent({ type: 'done', result: results });
+  res.end();
+});
+
+// @desc   View all officers under this superadmin
+// @route  GET /api/superadmin/officers
+const getAllOfficers = asyncHandler(async (req, res) => {
+  const { adminId, page, limit, search } = req.query;
+  const query = { superadminRef: req.user._id };
+  if (adminId) query.adminRef = adminId;
+  if (search) query.name = { $regex: search, $options: 'i' };
+
+  const result = await paginateQuery(
+    Officer, query, page, limit,
+    [{ path: 'rankRef', select: 'name code color priority' }, { path: 'adminRef', select: 'name email' }, { path: 'userRef', select: 'status lastLogin' }]
+  );
+  return successResponse(res, 200, 'Officers fetched', result);
+});
+
+// ─── DUTIES / DASHBOARD (unchanged) ──────────────────────────────────────────
 
 // @desc   Get all duties (superadmin view, all admins)
 // @route  GET /api/superadmin/duties
@@ -121,7 +385,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   ]);
 
   return successResponse(res, 200, 'Dashboard stats', {
-    totalAdmins, activeAdmins, totalOfficers, totalDuties, activeDuties, completedDuties
+    totalAdmins, activeAdmins, totalOfficers, totalDuties, activeDuties, completedDuties,
+    adminQuota: { used: totalAdmins, limit: req.user.adminCreationLimit || 0 },
   });
 });
 
@@ -170,4 +435,9 @@ const getDutyById = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, mapsLink });
 });
 
-module.exports = { getAdmins, getAdminDetails, getAllDuties, getDashboardStats, getOperatorsByAdmin, getDutiesForMap, getDutyById };
+module.exports = {
+  createAdmin, getAdmins, getAdminDetails, getAdminQuota,
+  suspendUser, activateUser,
+  bulkUploadOfficers, getAllOfficers,
+  getAllDuties, getDashboardStats, getOperatorsByAdmin, getDutiesForMap, getDutyById,
+};
