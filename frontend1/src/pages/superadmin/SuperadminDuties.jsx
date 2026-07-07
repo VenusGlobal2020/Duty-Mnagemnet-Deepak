@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Search, ClipboardCheck, X, ExternalLink, MapPin, Clock, Phone,
   FileText, Users, CheckCircle, XCircle, RefreshCw, Calendar,
-  Car, Shield, AlertTriangle, Activity, ChevronRight, User,
+  Car, Shield, AlertTriangle, Activity, ChevronRight, User, Route,
 } from 'lucide-react';
 import api from '../../api/axios';
 import {
@@ -12,6 +12,7 @@ import {
 } from '../../utils/helpers';
 import Pagination from '../../components/common/Pagination';
 import Modal from '../../components/common/Modal';
+import TrackMapModal from '../../components/common/TrackMapModal';
 
 // ─── Helper badges ────────────────────────────────────────────────────────────
 function AttBadge({ status }) {
@@ -65,6 +66,9 @@ function DutyDetailModal({ dutyId, apiPrefix, onClose, showAdmin = false }) {
     queryFn: () => api.get(`/${apiPrefix}/duties/${dutyId}`).then(r => r.data.data),
     enabled: !!dutyId,
   });
+
+  // { attendanceId, officerName } | null — drives the TrackMapModal
+  const [trackTarget, setTrackTarget] = useState(null);
 
   const duty        = data?.duty        || {};
   const attendanceMap = data?.attendanceMap || {};
@@ -159,7 +163,7 @@ function DutyDetailModal({ dutyId, apiPrefix, onClose, showAdmin = false }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {showAdmin && duty.adminRef && (
                 <div className="bg-ink-50 dark:bg-ink-800/50 rounded-lg p-3">
-                  <p className="text-[10px] text-ink-400 uppercase tracking-wide font-semibold mb-1">Admin (ACP)</p>
+                  <p className="text-[10px] text-ink-400 uppercase tracking-wide font-semibold mb-1">Admin</p>
                   <p className="text-sm font-semibold text-ink-900 dark:text-white">{duty.adminRef.name}</p>
                   {duty.adminRef.email && <p className="text-xs text-ink-500 mt-0.5">{duty.adminRef.email}</p>}
                   {duty.adminRef.phone && <p className="text-xs text-ink-500">{duty.adminRef.phone}</p>}
@@ -224,10 +228,10 @@ function DutyDetailModal({ dutyId, apiPrefix, onClose, showAdmin = false }) {
             <div>
               <SectionTitle icon={CheckCircle} title="Assigned Officers" count={activeOfficers.length} />
               <div className="overflow-x-auto rounded-lg border border-ink-200 dark:border-ink-700">
-                <table className="w-full text-sm min-w-[620px]">
+                <table className="w-full text-sm min-w-[720px]">
                   <thead className="bg-ink-50 dark:bg-ink-800/50">
                     <tr>
-                      {['Officer', 'Rank', 'Status', 'Check-In', 'Check-Out', 'Duration', 'Attendance'].map(h => (
+                      {['Officer', 'Rank', 'Status', 'Check-In', 'Check-Out', 'Duration', 'Attendance', 'Track'].map(h => (
                         <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold text-ink-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -288,6 +292,19 @@ function DutyDetailModal({ dutyId, apiPrefix, onClose, showAdmin = false }) {
                           </td>
                           <td className="px-3 py-3">
                             <AttBadge status={att?.status || 'absent'} />
+                          </td>
+                          <td className="px-3 py-3">
+                            {att?._id && att?.checkedInAt ? (
+                              <button
+                                type="button"
+                                onClick={() => setTrackTarget({ attendanceId: att._id, officerName: ao.officerRef?.name })}
+                                className="flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400 hover:underline font-medium whitespace-nowrap"
+                              >
+                                <Route className="w-3.5 h-3.5" /> View Track
+                              </button>
+                            ) : (
+                              <span className="text-xs text-ink-300 dark:text-ink-600">—</span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -387,6 +404,14 @@ function DutyDetailModal({ dutyId, apiPrefix, onClose, showAdmin = false }) {
             {duty.updatedAt && <span>Updated: {formatDateTime(duty.updatedAt)}</span>}
           </div>
         </div>
+      )}
+
+      {trackTarget && (
+        <TrackMapModal
+          attendanceId={trackTarget.attendanceId}
+          officerName={trackTarget.officerName}
+          onClose={() => setTrackTarget(null)}
+        />
       )}
     </Modal>
   );

@@ -23,7 +23,7 @@ export default function SuperadminAdmins() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-gray-900 dark:text-white">Admins (ACP)</h1>
+      <h1 className="text-xl font-bold text-gray-900 dark:text-white">Admins</h1>
       <div className="card p-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

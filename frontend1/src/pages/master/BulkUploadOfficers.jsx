@@ -140,7 +140,7 @@ export default function BulkUploadOfficers() {
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Admin selector */}
         <div className="card p-5">
-          <label className="form-label">Select Admin (ACP) *</label>
+          <label className="form-label">Select Admin  *</label>
           <select className="input-field" value={adminId} onChange={e => setAdminId(e.target.value)} required>
             <option value="">— Choose Admin —</option>
             {admins.filter(a => a.status === 'active').map(a => (

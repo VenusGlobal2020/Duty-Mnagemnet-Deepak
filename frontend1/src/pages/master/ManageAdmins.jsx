@@ -70,8 +70,8 @@ export default function ManageAdmins() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Admins (ACP)</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Manage all ACP-level admins</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Admins </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Manage all admins</p>
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary">
           <Plus className="w-4 h-4" /> Add Admin
@@ -189,11 +189,11 @@ export default function ManageAdmins() {
       </div>
 
       {/* Create Modal */}
-      <Modal isOpen={showModal} onClose={() => { setShowModal(false); setForm(EMPTY_FORM); }} title="Create Admin (ACP)">
+      <Modal isOpen={showModal} onClose={() => { setShowModal(false); setForm(EMPTY_FORM); }} title="Create Admin">
         <form onSubmit={handleCreate} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><label className="form-label">Full Name *</label><input className="input-field" placeholder="ACP Name" value={form.name} onChange={f('name')} required /></div>
-            <div><label className="form-label">Email *</label><input type="email" className="input-field" placeholder="acp@police.gov.in" value={form.email} onChange={f('email')} required /></div>
+            <div><label className="form-label">Full Name *</label><input className="input-field" placeholder="Admin Name" value={form.name} onChange={f('name')} required /></div>
+            <div><label className="form-label">Email *</label><input type="email" className="input-field" placeholder="admin@police.gov.in" value={form.email} onChange={f('email')} required /></div>
             <div><label className="form-label">Phone (10-digit) *</label><input className="input-field" placeholder="98XXXXXXXX" maxLength={10} value={form.phone} onChange={f('phone')} required /></div>
             <div><label className="form-label">Gender *</label>
               <select className="input-field" value={form.gender} onChange={f('gender')} required>

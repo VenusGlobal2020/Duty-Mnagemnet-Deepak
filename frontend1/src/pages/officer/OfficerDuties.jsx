@@ -411,7 +411,7 @@ function DutyCard({ duty }) {
         )}
         {!hasCheckedIn && canCheckIn && (
           <p className="text-xs text-ink-400">
-            <Navigation className="w-3 h-3 inline mr-1" /> You must be within 1 km of the duty location to check in.
+            <Navigation className="w-3 h-3 inline mr-1" /> You must be within 200m of the duty location to check in.
           </p>
         )}
       </div>

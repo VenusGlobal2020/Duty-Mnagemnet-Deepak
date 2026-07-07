@@ -20,8 +20,8 @@ const extraNav = (base) => ([
 // ─── Master Layout ─────────────────────────────────────────────────────────
 const masterNav = [
   { to: '/master', end: true, label: 'डैशबोर्ड', icon: LayoutDashboard },
-  { to: '/master/superadmin', label: 'सुपरएडमिन (एसपी)', icon: Shield },
-  { to: '/master/admins', label: 'एडमिन (एसीपी)', icon: Users },
+  { to: '/master/superadmin', label: 'सुपरएडमिन', icon: Shield },
+  { to: '/master/admins', label: 'एडमिन ', icon: Users },
   { to: '/master/ranks', label: 'रैंक प्रबंधन', icon: Star },
   { to: '/master/officers/bulk-upload', label: 'अधिकारी बल्क अपलोड', icon: Upload },
   { to: '/master/officers', end: true, label: 'सभी अधिकारी', icon: UserCheck },

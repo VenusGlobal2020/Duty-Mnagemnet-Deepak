@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ClipboardCheck, Download, Loader2, ArrowLeftRight, Calendar, ListChecks } from 'lucide-react';
+import { ClipboardCheck, Download, Loader2, ArrowLeftRight, Calendar, ListChecks, Route } from 'lucide-react';
 import api from '../../api/axios';
 import { apiError, formatDateTime } from '../../utils/helpers';
 import toast from 'react-hot-toast';
+import TrackMapModal from '../common/TrackMapModal';
 
 // ─── Attendance status pill ───────────────────────────────────────────────────
 export function AttendanceStatusBadge({ status }) {
@@ -59,16 +60,19 @@ function todayKey() {
 
 // One officer-attendance table — reused for the single-day view and for
 // every per-day block on a multi-day duty.
-function AttendanceTable({ officers }) {
+// `onTrackClick(attendanceId, officerName)` opens the route map for that
+// officer's shift on this table's date — only shown once they've actually
+// checked in (nothing to track before that).
+function AttendanceTable({ officers, onTrackClick }) {
   if (!officers || officers.length === 0) {
     return <p className="text-sm text-ink-400 text-center py-4">No officers recorded for this day</p>;
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm min-w-[640px]">
+      <table className="w-full text-sm min-w-[720px]">
         <thead className="bg-ink-50 dark:bg-ink-800/50">
           <tr>
-            {['Officer', 'Rank', 'Check-In', 'Check-Out', 'Duration', 'Status'].map(h => (
+            {['Officer', 'Rank', 'Check-In', 'Check-Out', 'Duration', 'Status', 'Track'].map(h => (
               <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-ink-500 uppercase tracking-wide">{h}</th>
             ))}
           </tr>
@@ -97,6 +101,19 @@ function AttendanceTable({ officers }) {
               <td className="px-4 py-3">
                 <AttendanceStatusBadge status={s.attendanceStatus} />
               </td>
+              <td className="px-4 py-3">
+                {s.attendance?._id && s.attendance?.checkedInAt ? (
+                  <button
+                    type="button"
+                    onClick={() => onTrackClick(s.attendance._id, s.officer?.name)}
+                    className="flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400 hover:underline font-medium whitespace-nowrap"
+                  >
+                    <Route className="w-3.5 h-3.5" /> View Track
+                  </button>
+                ) : (
+                  <span className="text-xs text-ink-300 dark:text-ink-600">—</span>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -118,6 +135,10 @@ export default function DutyAttendanceSection({ dutyId }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const defaultedRef = useRef(false);
+
+  // { attendanceId, officerName } | null — drives the TrackMapModal
+  const [trackTarget, setTrackTarget] = useState(null);
+  const openTrack = (attendanceId, officerName) => setTrackTarget({ attendanceId, officerName });
 
   const { data: attData, isLoading } = useQuery({
     queryKey: ['duty-attendance', dutyId],
@@ -235,7 +256,7 @@ export default function DutyAttendanceSection({ dutyId }) {
       ) : dailyAttendance.length === 0 ? (
         <p className="text-sm text-ink-400 text-center py-4">No assigned officers found</p>
       ) : !isMultiDay ? (
-        <AttendanceTable officers={dailyAttendance[0]?.officers} />
+        <AttendanceTable officers={dailyAttendance[0]?.officers} onTrackClick={openTrack} />
       ) : !showAll ? (
         // Single selected day
         <div className="rounded-xl border border-ink-200 dark:border-ink-700 overflow-hidden">
@@ -243,7 +264,7 @@ export default function DutyAttendanceSection({ dutyId }) {
             <span className="text-sm font-semibold text-white">{selectedDay?.dayLabel}</span>
             <span className="text-xs text-ink-300">{selectedDay?.officers?.length || 0} officer(s) on duty</span>
           </div>
-          <AttendanceTable officers={selectedDay?.officers} />
+          <AttendanceTable officers={selectedDay?.officers} onTrackClick={openTrack} />
         </div>
       ) : (
         // Show All Attendance — full day-wise breakdown
@@ -258,10 +279,18 @@ export default function DutyAttendanceSection({ dutyId }) {
                 <span className="text-sm font-semibold text-white">{day.dayLabel}</span>
                 <span className="text-xs text-ink-300">{day.officers.length} officer(s) on duty</span>
               </div>
-              <AttendanceTable officers={day.officers} />
+              <AttendanceTable officers={day.officers} onTrackClick={openTrack} />
             </div>
           ))}
         </div>
+      )}
+
+      {trackTarget && (
+        <TrackMapModal
+          attendanceId={trackTarget.attendanceId}
+          officerName={trackTarget.officerName}
+          onClose={() => setTrackTarget(null)}
+        />
       )}
     </div>
   );
