@@ -25,25 +25,44 @@ const getDistanceMeters = (lat1, lng1, lat2, lng2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-// Calendar date string (server-local, YYYY-MM-DD) used to key one attendance
-// record per officer per day — this is what lets multi-day duties track
-// daily check-in/check-out, and keeps a swapped-out officer's earlier days
-// intact under their own name while the incoming officer gets their own
-// fresh records from the swap date onward.
+// ─── TIMEZONE ────────────────────────────────────────────────────────────────
+// Everything about "which day is it" and "what time of day is it" for
+// attendance purposes must be anchored to India Standard Time, NOT the
+// server's own clock. Most hosts run their servers in UTC — if this code
+// used the server's local time, an officer checking in during the early
+// hours of the morning in India (00:00–05:29 IST) could get bucketed under
+// the PREVIOUS day, because in UTC it's still "yesterday" at that moment.
+// That mismatch is exactly what caused: an officer who checked in on the
+// 6th being told "already checked in today" on the 7th (their check-in got
+// silently filed under the 6th server-side), while the attendance dashboard
+// — built from the real IST calendar date — correctly showed the 7th as
+// having no record (absent). Anchoring explicitly to IST here makes the
+// behavior identical no matter what timezone the server itself is running.
+const IST_TZ = 'Asia/Kolkata';
+
+// Calendar date string (YYYY-MM-DD) for a given instant, IN INDIA'S
+// TIMEZONE — this is what keys one attendance record per officer per day,
+// so if an officer is swapped out mid-duty their earlier days stay
+// recorded under them and the incoming officer's check-ins from the swap
+// date onward are their own separate records — nothing gets merged or
+// overwritten.
 const getDateStr = (d = new Date()) => {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  // 'en-CA' formats as YYYY-MM-DD, which is exactly the key format used
+  // throughout this file (and matches Attendance.date / dutySnapshot).
+  return new Intl.DateTimeFormat('en-CA', { timeZone: IST_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 };
 
 // Given a duty's dynamic shift list, find whichever shift window covers the
-// current time-of-day (handles overnight shifts where endTime < startTime,
-// e.g. "22:00" -> "06:00"). Returns the shift label, or null if the duty has
-// no shifts defined (single-day / non-shift duty) or none currently match.
+// current time-of-day IN IST (handles overnight shifts where endTime <
+// startTime, e.g. "22:00" -> "06:00"). Returns the shift label, or null if
+// the duty has no shifts defined (single-day / non-shift duty) or none
+// currently match.
 const matchShift = (shifts, at = new Date()) => {
   if (!shifts || shifts.length === 0) return null;
-  const nowMinutes = at.getHours() * 60 + at.getMinutes();
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: IST_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at);
+  const hour = parseInt(parts.find(p => p.type === 'hour').value, 10);
+  const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+  const nowMinutes = hour * 60 + minute;
   const toMinutes = (hhmm) => {
     const [h, m] = hhmm.split(':').map(Number);
     return h * 60 + m;
@@ -68,20 +87,27 @@ const matchShift = (shifts, at = new Date()) => {
 // slot right now), correctly split by calendar day when the duty spans more
 // than one day.
 
-// Strip the time portion, keep just the calendar day (server-local midnight).
+// Strip the time portion, keep just the calendar day — anchored to IST via
+// getDateStr, then represented as a UTC-midnight Date purely for ordering
+// and day-increment arithmetic. Using Date.UTC (instead of the server's
+// local timezone) here means this math gives identical results no matter
+// what timezone the server itself happens to be running in.
 const dayOnly = (d) => {
-  const x = new Date(d);
-  return new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const [y, m, day] = getDateStr(d).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, day));
 };
 
-// Inclusive list of YYYY-MM-DD date-strings between two Dates.
+// Inclusive list of YYYY-MM-DD date-strings (IST calendar days) between two
+// Dates. Increment is done in fixed 24h UTC-ms steps (not via local
+// getFullYear/getMonth/getDate getters), so it can never be thrown off by
+// the server's own timezone or DST rules.
 const enumerateDateKeys = (start, end) => {
   const keys = [];
   let cur = dayOnly(start);
   const last = dayOnly(end);
   while (cur.getTime() <= last.getTime()) {
     keys.push(getDateStr(cur));
-    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+    cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
   }
   return keys;
 };

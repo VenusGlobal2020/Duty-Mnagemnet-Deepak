@@ -7,6 +7,18 @@ const { successResponse, errorResponse, paginateQuery } = require('../utils/resp
 const { createNotification } = require('../utils/notificationService');
 const { notifyDutyRejected } = require('../utils/whatsapp');
 
+// Today's calendar date (YYYY-MM-DD), anchored to India Standard Time —
+// must match exactly what controllers/attendanceController.js uses to key
+// attendance records, regardless of what timezone the server itself runs
+// in. Using the server's own local clock here (as this used to) could make
+// this "today" disagree with the real check-in/check-out "today" whenever
+// the server isn't itself running in IST — e.g. showing a duty as "not
+// checked in today" even though the officer already had checked in, simply
+// because the server's own midnight rollover happens ~5.5 hours later than
+// India's.
+const getTodayIST = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
 // @desc   Get officer's active duties
 // @route  GET /api/officer/duties/active
 const getActiveDuties = asyncHandler(async (req, res) => {
@@ -37,10 +49,7 @@ const getActiveDuties = asyncHandler(async (req, res) => {
   // one attendance record per officer per calendar day, so "have I checked in"
   // on this list always means "today", not any day in the duty's history.
   const dutyIds = duties.map((d) => d._id);
-  const todayStr = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  })();
+  const todayStr = getTodayIST();
   const attendanceRecords = await Attendance.find({
     dutyRef: { $in: dutyIds },
     officerRef: officer._id,
@@ -206,10 +215,7 @@ const getDutyDetails = asyncHandler(async (req, res) => {
 
   // Officer's attendance for this duty — today's record (for check-in/out
   // actions) plus the full daily history (for multi-day duties).
-  const todayStr = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  })();
+  const todayStr = getTodayIST();
   const [myAttendance, dailyRecords] = await Promise.all([
     Attendance.findOne({ dutyRef: duty._id, officerRef: officer._id, date: todayStr }),
     Attendance.find({ dutyRef: duty._id, officerRef: officer._id }).sort({ date: 1 }),
