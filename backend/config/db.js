@@ -12,24 +12,58 @@ const connectDB = async () => {
     // older unique index — just (dutyRef, officerRef), or even dutyRef alone —
     // may still be sitting on the collection. Mongoose's normal startup only
     // ADDS indexes defined in the schema; it never drops ones that are no
-    // longer defined. That stale index is what causes a "DutyRef already
-    // exists" error the moment an officer tries to check in on day 2+ of a
-    // multi-day duty (their day-1 record already satisfies the old, broader
-    // index, so day 2's insert collides with it even though the date differs).
+    // longer defined. That stale index is what causes a "you have already
+    // checked in today" error the moment an officer tries to check in on day
+    // 2+ of a multi-day duty (their day-1 record already satisfies the old,
+    // broader index, so day 2's insert collides with it even though the date
+    // differs).
     //
-    // Attendance.syncIndexes() reconciles the collection's actual indexes
-    // with exactly what's declared in the current schema — dropping any
-    // extra/outdated index and (re)creating the correct
-    // (dutyRef, officerRef, date) unique index. It's safe to run on every
-    // boot: a no-op once the collection is already in sync.
+    // We do this explicitly (list indexes -> drop anything unexpected ->
+    // syncIndexes) instead of only calling Attendance.syncIndexes(), and we
+    // log every step loudly and RE-THROW on failure. The previous version of
+    // this function swallowed index-sync errors with a plain console.error,
+    // so on any deployment where the DB user lacked index-management rights,
+    // or the sync silently no-op'd, the stale index kept causing the bug
+    // forever with no visible signal that anything was wrong.
     try {
       const Attendance = require('../models/Attendance');
+      const collection = Attendance.collection;
+
+      const existingIndexes = await collection.indexes();
+      console.log(
+        'ℹ️  Current Attendance indexes:',
+        JSON.stringify(existingIndexes.map((i) => ({ name: i.name, key: i.key, unique: i.unique })))
+      );
+
+      const isCorrectAttendanceIndex = (idx) => {
+        const keys = Object.keys(idx.key);
+        return keys.length === 3 && idx.key.dutyRef === 1 && idx.key.officerRef === 1 && idx.key.date === 1;
+      };
+
+      // Any unique index that touches dutyRef+officerRef but ISN'T exactly
+      // the current (dutyRef, officerRef, date) unique index is a stale
+      // pre-multi-day index and must be dropped, or it will keep colliding
+      // with day-2+ check-ins forever.
+      for (const idx of existingIndexes) {
+        if (idx.name === '_id_') continue;
+        const keys = Object.keys(idx.key);
+        const touchesDutyOfficer = keys.includes('dutyRef') && keys.includes('officerRef');
+        if (touchesDutyOfficer && idx.unique && !isCorrectAttendanceIndex(idx)) {
+          console.warn(
+            `⚠️  Dropping stale Attendance index "${idx.name}" (${JSON.stringify(idx.key)}) — this was blocking multi-day check-ins`
+          );
+          await collection.dropIndex(idx.name);
+        }
+      }
+
       const result = await Attendance.syncIndexes();
       console.log('✅ Attendance indexes synced:', result);
     } catch (indexErr) {
-      // Never let an index-sync hiccup take the whole server down — worst
-      // case the stale-index bug persists until the next successful sync.
-      console.error('⚠️  Attendance index sync failed (server will continue running):', indexErr.message);
+      // Surface this loudly. A silently-failed index sync means the
+      // multi-day check-in bug will keep happening with no visible cause,
+      // so it's better to fail startup than to run in a broken state.
+      console.error('❌ Attendance index sync failed:', indexErr.message);
+      throw indexErr;
     }
   } catch (error) {
     console.error(`❌ DB Error: ${error.message}`);

@@ -18,6 +18,7 @@ const mapplsRoutes = require('./routes/mapplsRoutes');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { startDutyStatusCron } = require('./jobs/dutyStatusCron');
+const connectDB = require('./config/db'); // ← handles Mongo connection AND the Attendance index-sync fix (multi-day check-in bug)
 
 const app = express();
 
@@ -76,18 +77,11 @@ app.use('/api/mappls', mapplsRoutes);  // ← NEW: OAuth token for map_sdk_plugi
 app.use(notFound);
 app.use(errorHandler);
 
-// DB Connection + Server Start
+// DB Connection (+ Attendance index-sync fix) + Server Start
 const PORT = process.env.PORT || 5000;
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log('✅ MongoDB connected');
-    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-    startDutyStatusCron();
-  })
-  .catch((err) => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
+connectDB().then(() => {
+  app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+  startDutyStatusCron();
+});
 
 module.exports = app;
