@@ -10,42 +10,54 @@ const DEAD_TOKEN_CODES = new Set([
 ]);
 
 /**
- * Send an FCM push notification to a single user (by User._id), using
- * whatever fcmToken is currently stored on their account. No-ops quietly
- * (returns { sent: false }) if Firebase isn't configured, the user has no
- * token, or the send fails — callers never need to branch on this.
+ * Send an FCM push notification to a single user (by User._id). Sends to
+ * BOTH the web dashboard's token (fcmToken) and the mobile app's token
+ * (fcmTokenApp) whenever each is present, so an officer logged into both
+ * gets the notification on both. No-ops quietly (returns { sent: false })
+ * if Firebase isn't configured, the user has no token on either device, or
+ * every send fails — callers never need to branch on this.
  */
 const sendPushToUser = async (userId, { title, body, data = {} }) => {
   if (!userId || !isFirebaseConfigured()) return { sent: false };
 
-  const user = await User.findById(userId).select('fcmToken');
-  if (!user?.fcmToken) return { sent: false };
+  const user = await User.findById(userId).select('fcmToken fcmTokenApp');
+  const targets = [
+    { field: 'fcmToken', token: user?.fcmToken },
+    { field: 'fcmTokenApp', token: user?.fcmTokenApp },
+  ].filter((t) => !!t.token);
 
-  try {
-    await getMessaging().send({
-      token: user.fcmToken,
-      notification: { title, body },
-      // FCM data payloads must be flat string key/value pairs.
-      data: Object.fromEntries(
-        Object.entries(data)
-          .filter(([, v]) => v !== undefined && v !== null)
-          .map(([k, v]) => [k, String(v)])
-      ),
-      webpush: {
-        notification: { icon: '/shield.svg' },
-        fcmOptions: { link: '/' },
-      },
-    });
-    return { sent: true };
-  } catch (error) {
-    if (DEAD_TOKEN_CODES.has(error.code)) {
-      // Stale token — clear it so we don't keep retrying a dead device.
-      await User.findByIdAndUpdate(userId, { fcmToken: null }).catch(() => {});
-    } else {
-      console.error(`[push] Failed to send to user ${userId}:`, error.message);
-    }
-    return { sent: false };
-  }
+  if (targets.length === 0) return { sent: false };
+
+  const payload = {
+    notification: { title, body },
+    data: Object.fromEntries(
+      Object.entries(data)
+        .filter(([, v]) => v !== undefined && v !== null)
+        .map(([k, v]) => [k, String(v)])
+    ),
+    webpush: {
+      notification: { icon: '/shield.svg' },
+      fcmOptions: { link: '/' },
+    },
+  };
+
+  const results = await Promise.all(
+    targets.map(async ({ field, token }) => {
+      try {
+        await getMessaging().send({ token, ...payload });
+        return true;
+      } catch (error) {
+        if (DEAD_TOKEN_CODES.has(error.code)) {
+          await User.findByIdAndUpdate(userId, { [field]: null }).catch(() => {});
+        } else {
+          console.error(`[push] Failed to send to user ${userId} (${field}):`, error.message);
+        }
+        return false;
+      }
+    })
+  );
+
+  return { sent: results.some(Boolean) };
 };
 
 /**

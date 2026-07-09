@@ -41,6 +41,13 @@ const userSchema = new mongoose.Schema({
   // simply overwrites the old token, matching how the frontend re-registers
   // on every login/app load in utils/firebase.js.
   fcmToken: { type: String, default: null },
+
+  // Separate FCM token for the officer's MOBILE APP (DutyOfficerApp),
+  // written by appbackend's PATCH /api/mobile/notifications/fcm-token.
+  // Kept apart from `fcmToken` (the web dashboard's token) on purpose, so
+  // logging into the app doesn't stomp the web session's push token and
+  // vice versa — both can now receive push notifications at the same time.
+  fcmTokenApp: { type: String, default: null },
   // Last login
   lastLogin: Date,
   // For officer — rank reference (denormalized for quick auth middleware access)
