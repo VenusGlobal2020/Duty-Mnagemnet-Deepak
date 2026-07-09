@@ -35,6 +35,7 @@ export function MasterLayout() { return <BaseLayout navItems={masterNav} />; }
 const superadminNav = [
   { to: '/superadmin', end: true, label: 'डैशबोर्ड', icon: LayoutDashboard },
   { to: '/superadmin/admins', label: 'एडमिन (एसीपी)', icon: Users },
+  { to: '/superadmin/officers/bulk-upload', label: 'अधिकारी बल्क अपलोड', icon: Upload },
   { to: '/superadmin/duties', label: 'सभी ड्यूटी', icon: ClipboardList },
   { to: '/superadmin/map-view', label: 'मानचित्र दृश्य', icon: Map },
   // ...extraNav('/superadmin'),
@@ -58,6 +59,7 @@ const operatorNav = [
   { to: '/operator', end: true, label: 'डैशबोर्ड', icon: LayoutDashboard },
   { to: '/operator/officers', label: 'अधिकारी', icon: UserCheck },
   { to: '/operator/duties', label: 'ड्यूटी', icon: ClipboardList },
+  { to: '/operator/duties/bulk-upload', label: 'ड्यूटी बल्क अपलोड', icon: Upload },
   { to: '/operator/duty-types', label: 'ड्यूटी प्रकार', icon: Layers },
   { to: '/operator/map-view', label: 'मानचित्र दृश्य', icon: Map },
   // ...extraNav('/operator'),

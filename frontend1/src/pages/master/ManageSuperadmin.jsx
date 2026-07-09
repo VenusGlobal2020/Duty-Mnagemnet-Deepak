@@ -1,10 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Plus, Ban, CheckCircle, Eye, EyeOff } from 'lucide-react';
+import { Shield, Plus, Ban, CheckCircle, Eye, EyeOff, Users, Pencil } from 'lucide-react';
 import api from '../../api/axios';
 import { apiError, formatDate, getStatusColor } from '../../utils/helpers';
 import Modal from '../../components/common/Modal';
-import ConfirmDialog from '../../components/common/ConfirmDialog';
 import toast from 'react-hot-toast';
 
 export default function ManageSuperadmin() {
@@ -13,8 +12,10 @@ export default function ManageSuperadmin() {
   const [suspendDialog, setSuspendDialog] = useState({ open: false, action: null });
   const [suspendReason, setSuspendReason] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [showQuotaModal, setShowQuotaModal] = useState(false);
+  const [quotaInput, setQuotaInput] = useState('0');
   const [form, setForm] = useState({
-    name: '', email: '', phone: '', password: '', confirmPassword: '', gender: 'male', dateOfBirth: ''
+    name: '', email: '', phone: '', password: '', confirmPassword: '', gender: 'male', dateOfBirth: '', adminCreationLimit: '0'
   });
 
   const { data: superadmin, isLoading } = useQuery({
@@ -22,13 +23,17 @@ export default function ManageSuperadmin() {
     queryFn: () => api.get('/master/superadmin').then(r => r.data.data.superadmin),
   });
 
+  useEffect(() => {
+    if (superadmin) setQuotaInput(String(superadmin.adminCreationLimit ?? 0));
+  }, [superadmin?.adminCreationLimit]);
+
   const createMut = useMutation({
     mutationFn: (data) => api.post('/master/superadmin', data),
     onSuccess: () => {
       toast.success('Superadmin created! Credentials sent via WhatsApp.');
       qc.invalidateQueries(['master-superadmin']);
       setShowModal(false);
-      setForm({ name: '', email: '', phone: '', password: '', confirmPassword: '', gender: 'male', dateOfBirth: '' });
+      setForm({ name: '', email: '', phone: '', password: '', confirmPassword: '', gender: 'male', dateOfBirth: '', adminCreationLimit: '0' });
     },
     onError: (err) => toast.error(apiError(err)),
   });
@@ -36,7 +41,7 @@ export default function ManageSuperadmin() {
   const suspendMut = useMutation({
     mutationFn: ({ id, reason }) => api.patch(`/master/suspend/${id}`, { reason }),
     onSuccess: () => {
-      toast.success('Superadmin suspended');
+      toast.success('Superadmin suspended — all admins & operators under them are now locked out');
       qc.invalidateQueries(['master-superadmin']);
       setSuspendDialog({ open: false, action: null });
       setSuspendReason('');
@@ -53,12 +58,30 @@ export default function ManageSuperadmin() {
     onError: (err) => toast.error(apiError(err)),
   });
 
+  const quotaMut = useMutation({
+    mutationFn: (adminCreationLimit) => api.patch('/master/superadmin/admin-limit', { adminCreationLimit }),
+    onSuccess: () => {
+      toast.success('Admin creation limit updated');
+      qc.invalidateQueries(['master-superadmin']);
+      setShowQuotaModal(false);
+    },
+    onError: (err) => toast.error(apiError(err)),
+  });
+
   const handleCreate = (e) => {
     e.preventDefault();
     if (form.password !== form.confirmPassword) { toast.error('Passwords do not match'); return; }
     if (form.password.length < 8) { toast.error('Password must be at least 8 characters'); return; }
     if (!/^[6-9]\d{9}$/.test(form.phone)) { toast.error('Enter valid 10-digit phone number'); return; }
-    createMut.mutate(form);
+    const limit = parseInt(form.adminCreationLimit);
+    if (isNaN(limit) || limit < 0) { toast.error('Admin creation limit must be a non-negative number'); return; }
+    createMut.mutate({ ...form, adminCreationLimit: limit });
+  };
+
+  const handleQuotaSave = () => {
+    const limit = parseInt(quotaInput);
+    if (isNaN(limit) || limit < 0) { toast.error('Enter a valid non-negative number'); return; }
+    quotaMut.mutate(limit);
   };
 
   const f = (k) => (e) => setForm(prev => ({ ...prev, [k]: e.target.value }));
@@ -127,6 +150,25 @@ export default function ManageSuperadmin() {
             ))}
           </div>
 
+          {/* Admin creation quota — the number of admins this superadmin may create */}
+          <div className="mt-4 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Users className="w-5 h-5 text-indigo-500 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200">Admin Creation Quota</p>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                  {superadmin.adminsCreated ?? 0} of {superadmin.adminCreationLimit ?? 0} admin(s) created
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => { setQuotaInput(String(superadmin.adminCreationLimit ?? 0)); setShowQuotaModal(true); }}
+              className="btn-secondary text-sm px-3 py-1.5"
+            >
+              <Pencil className="w-3.5 h-3.5" /> Update Quota
+            </button>
+          </div>
+
           {superadmin.suspendReason && (
             <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
               <p className="text-sm text-red-700 dark:text-red-300">
@@ -174,6 +216,11 @@ export default function ManageSuperadmin() {
               <input type="date" className="input-field" value={form.dateOfBirth} onChange={f('dateOfBirth')} required />
             </div>
             <div>
+              <label className="form-label">Admin Creation Limit *</label>
+              <input type="number" min="0" className="input-field" placeholder="e.g. 10" value={form.adminCreationLimit} onChange={f('adminCreationLimit')} required />
+              <p className="text-xs text-gray-400 mt-1">Max number of admins this superadmin can create (you can change this later)</p>
+            </div>
+            <div>
               <label className="form-label">Password *</label>
               <div className="relative">
                 <input type={showPass ? 'text' : 'password'} className="input-field pr-10" placeholder="Min 8 chars" value={form.password} onChange={f('password')} required />
@@ -194,6 +241,25 @@ export default function ManageSuperadmin() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Update Quota Modal */}
+      <Modal isOpen={showQuotaModal} onClose={() => setShowQuotaModal(false)} title="Update Admin Creation Quota" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            This is the maximum number of admins the superadmin is allowed to create. Currently used: {superadmin?.adminsCreated ?? 0}.
+          </p>
+          <div>
+            <label className="form-label">New Limit *</label>
+            <input type="number" min={superadmin?.adminsCreated ?? 0} className="input-field" value={quotaInput} onChange={e => setQuotaInput(e.target.value)} />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setShowQuotaModal(false)} className="btn-secondary flex-1">Cancel</button>
+            <button onClick={handleQuotaSave} disabled={quotaMut.isPending} className="btn-primary flex-1">
+              {quotaMut.isPending ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Suspend Dialog */}
