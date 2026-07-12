@@ -18,6 +18,7 @@ const mapplsRoutes = require('./routes/mapplsRoutes');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { startDutyStatusCron } = require('./jobs/dutyStatusCron');
+const { startLeaveCron } = require('./jobs/leaveCron');
 const connectDB = require('./config/db'); // ← handles Mongo connection AND the Attendance index-sync fix (multi-day check-in bug)
 
 const app = express();
@@ -82,6 +83,7 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
   app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   startDutyStatusCron();
+  startLeaveCron();
 });
 
 module.exports = app;

@@ -5,7 +5,7 @@ const {
   getAdmins, getAdminDetails,
   suspendUser, activateUser,
   createRank, getRanks, updateRank, deleteRank,
-  bulkUploadOfficers, getAllOfficers,
+  bulkUploadOfficers, getAllOfficers, getOfficerLocations,
   getDutiesForMap,
 } = require('../controllers/masterController');
 const { protect, authorize } = require('../middleware/authMiddleware');
@@ -30,6 +30,7 @@ router.route('/ranks').post(createRank).get(getRanks);
 router.route('/ranks/:rankId').put(updateRank).delete(deleteRank);
 
 router.post('/officers/bulk-upload', uploadOfficerExcel.single('file'), bulkUploadOfficers);
+router.get('/officers/locations', getOfficerLocations);
 router.get('/officers', getAllOfficers);
 
 router.get('/duties/map', getDutiesForMap);

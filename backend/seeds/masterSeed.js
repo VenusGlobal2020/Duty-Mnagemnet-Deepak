@@ -27,18 +27,15 @@ const seed = async () => {
       role: 'master',
       status: 'active'
     });
-    console.log('✅ Master created:', master.email, '| Password: venus@1978@');
+    console.log('✅ Master created:', master.email, '| Password: supertech@1978@');
 
     // Create default ranks
     const defaultRanks = [
-      { name: 'SP',        code: 'A', priority: 1, color: '#DC2626' },
-      { name: 'ASP',       code: 'B', priority: 2, color: '#EA580C' },
-      { name: 'DSP',       code: 'C', priority: 3, color: '#D97706' },
-      { name: 'Inspector', code: 'D', priority: 4, color: '#65A30D' },
-      { name: 'SI',        code: 'E', priority: 5, color: '#0891B2' },
-      { name: 'ASI',       code: 'F', priority: 6, color: '#2563EB' },
-      { name: 'Head Constable', code: 'G', priority: 7, color: '#7C3AED' },
-      { name: 'Constable', code: 'H', priority: 8, color: '#6B7280' },
+      { name: 'DSP',       code: 'A', priority: 1, color: '#D97706' },
+      { name: 'Inspector', code: 'B', priority: 2, color: '#65A30D' },
+      { name: 'SI',        code: 'C', priority: 3, color: '#0891B2' },
+      { name: 'Head Constable', code: 'D', priority: 4, color: '#7C3AED' },
+      { name: 'Constable', code: 'E', priority: 5, color: '#6B7280' },
     ];
 
     for (const rank of defaultRanks) {

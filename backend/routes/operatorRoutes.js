@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getOfficers, addOfficer, updateOfficer, deleteOfficer,
+  getOfficers, addOfficer, updateOfficer, deleteOfficer, getOfficerLocations,
   createDuty, getDuties, getDutyById, updateDuty, cancelDuty, deleteDuty,
   replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank,
   getDutiesForMap, bulkCreateDuties,
+  markOfficerAvailable, getPendingReturnOfficers, getLeaveConflictSuggestions, resolveLeaveConflict,
 } = require('../controllers/operatorController');
 const {
   createDutyType, getDutyTypes, updateDutyType, deleteDutyType,
@@ -18,11 +19,14 @@ const { uploadDutyDoc, uploadOfficerExcel } = require('../config/cloudinary');
 router.use(protect, authorize('operator_special', 'operator_regular'));
 
 // Officers
-// NOTE: '/officers/available' must be declared before '/officers/:officerId'
-// so Express doesn't treat "available" as an :officerId value.
+// NOTE: '/officers/available' and '/officers/pending-return' must be declared
+// before '/officers/:officerId' so Express doesn't treat them as an :officerId value.
 router.get('/officers/available', getAvailableOfficersByRank);
+router.get('/officers/pending-return', getPendingReturnOfficers);
+router.get('/officers/locations', getOfficerLocations);
 router.route('/officers').get(getOfficers).post(addOfficer);
 router.route('/officers/:officerId').put(updateOfficer).delete(deleteOfficer);
+router.patch('/officers/:officerId/mark-available', markOfficerAvailable);
 
 // Duty Types (regular operator only — enforced in the controller)
 router.route('/duty-types').get(getDutyTypes).post(createDutyType);
@@ -40,6 +44,8 @@ router.route('/duties/:dutyId').get(getDutyById).put(updateDuty).delete(deleteDu
 router.patch('/duties/:dutyId/cancel', cancelDuty);
 router.patch('/duties/:dutyId/replace/:assignmentId', replaceOfficer);
 router.patch('/duties/:dutyId/assignments/:assignmentId/manual-replace', manualReplaceOfficer);
+router.get('/duties/:dutyId/assignments/:assignmentId/leave-conflict-suggestions', getLeaveConflictSuggestions);
+router.patch('/duties/:dutyId/assignments/:assignmentId/resolve-leave-conflict', resolveLeaveConflict);
 
 // Officer swaps
 // NOTE: '/swaps' (the queue) must be declared before any param-based duty
