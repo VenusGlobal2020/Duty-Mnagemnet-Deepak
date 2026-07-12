@@ -101,9 +101,10 @@ export default function ManageDuties() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>
-                {['Duty Name', 'Location', 'Priority', 'Type', 'Start', 'End', 'Officers', 'Attendance', 'Status', ''].map(h => (
+                {['Duty Name', 'Location', 'Priority', 'Type', 'Start', 'End', 'Officers', 'Attendance', 'Status'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
+                <th className="sticky right-0 z-10 bg-gray-50 dark:bg-gray-800/50 px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)]"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -120,7 +121,7 @@ export default function ManageDuties() {
                 data?.data?.map(duty => (
                   <tr
                     key={duty._id}
-                    className="table-row cursor-pointer"
+                    className="table-row cursor-pointer group"
                     onClick={() => navigate(`/operator/duties/${duty._id}`)}
                   >
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{truncate(duty.dutyName, 25)}</td>
@@ -156,8 +157,8 @@ export default function ManageDuties() {
                     <td className="px-4 py-3">
                       <span className={`badge ${getStatusColor(duty.status)}`}>{duty.status}</span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs text-primary-600 hover:underline">View →</span>
+                    <td className="sticky right-0 z-10 bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/40 px-4 py-3 shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)]">
+                      <span className="text-xs text-primary-600 hover:underline font-medium">View →</span>
                     </td>
                   </tr>
                 ))

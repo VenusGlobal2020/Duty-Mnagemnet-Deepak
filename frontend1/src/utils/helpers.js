@@ -27,6 +27,9 @@ export const getStatusColor = (status) => {
     rejected: 'bg-red-100 text-red-700',
     replaced: 'bg-signal-100 text-signal-700',
     assigned: 'bg-signal2-100 text-signal2-700',
+    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    approved: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    auto_rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   };
   return map[status] || 'bg-ink-100 text-ink-600';
 };

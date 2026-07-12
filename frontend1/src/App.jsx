@@ -15,9 +15,11 @@ import SuperadminDashboard from './pages/superadmin/SuperadminDashboard';
 import SuperadminAdmins from './pages/superadmin/SuperadminAdmins';
 import SuperadminBulkUploadOfficers from './pages/superadmin/SuperadminBulkUploadOfficers';
 import SuperadminDuties from './pages/superadmin/SuperadminDuties';
+import SuperadminLeaves from './pages/superadmin/SuperadminLeaves';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminOperators from './pages/admin/AdminOperators';
 import AdminDuties from './pages/admin/AdminDuties';
+import AdminLeaves from './pages/admin/AdminLeaves';
 import OperatorDashboard from './pages/operator/OperatorDashboard';
 import ManageOfficers from './pages/operator/ManageOfficers';
 import ManageDuties from './pages/operator/ManageDuties';
@@ -26,9 +28,11 @@ import BulkCreateDuties from './pages/operator/BulkCreateDuties';
 import ManageDutyTypes from './pages/operator/ManageDutyTypes';
 import DutyDetail from './pages/operator/DutyDetail';
 import OperatorSwapRequests from './pages/operator/OperatorSwapRequests';
+import OperatorLeaveOverview from './pages/operator/OperatorLeaveOverview';
 import OfficerDashboard from './pages/officer/OfficerDashboard';
 import OfficerDuties from './pages/officer/OfficerDuties';
 import OfficerHistory from './pages/officer/OfficerHistory';
+import OfficerLeaves from './pages/officer/OfficerLeaves';
 import SettingsPage from './pages/shared/SettingsPage';
 import NotFoundPage from './pages/shared/NotFoundPage';
 import NotificationsPage from './pages/shared/NotificationsPage';
@@ -84,7 +88,7 @@ function AppRoutes() {
         <Route path="officers/bulk-upload" element={<SuperadminBulkUploadOfficers />} />
         <Route path="duties" element={<SuperadminDuties />} />
         <Route path="map-view" element={<MapView />} />
-        <Route path="leave" element={<ComingSoonPage />} />
+        <Route path="leave" element={<SuperadminLeaves />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
         <Route path="settings" element={<SettingsPage />} />
@@ -95,7 +99,7 @@ function AppRoutes() {
         <Route path="operators" element={<AdminOperators />} />
         <Route path="duties" element={<AdminDuties />} />
         <Route path="map-view" element={<MapView />} />
-        <Route path="leave" element={<ComingSoonPage />} />
+        <Route path="leave" element={<AdminLeaves />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
         <Route path="settings" element={<SettingsPage />} />
@@ -111,7 +115,7 @@ function AppRoutes() {
         <Route path="duty-types" element={<ManageDutyTypes />} />
         <Route path="swap-requests" element={<OperatorSwapRequests />} />
         <Route path="map-view" element={<MapView />} />
-        <Route path="leave" element={<ComingSoonPage />} />
+        <Route path="leave" element={<OperatorLeaveOverview />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
         <Route path="settings" element={<SettingsPage />} />
@@ -123,7 +127,7 @@ function AppRoutes() {
         <Route path="duties" element={<OfficerDuties />} />
         <Route path="history" element={<OfficerHistory />} />
         <Route path="map-view" element={<MapView />} />
-        <Route path="leave" element={<ComingSoonPage />} />
+        <Route path="leave" element={<OfficerLeaves />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
         <Route path="settings" element={<SettingsPage />} />

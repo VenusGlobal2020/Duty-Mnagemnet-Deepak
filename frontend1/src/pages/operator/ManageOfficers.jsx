@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2, Search, UserCheck } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, UserCheck, CheckCircle2 } from 'lucide-react';
 import api from '../../api/axios';
 import { apiError, getStatusColor } from '../../utils/helpers';
 import Modal from '../../components/common/Modal';
@@ -8,20 +8,33 @@ import ConfirmDialog from '../../components/common/ConfirmDialog';
 import Pagination from '../../components/common/Pagination';
 import toast from 'react-hot-toast';
 
-const EMPTY = { name: '', email: '', phone: '', gender: 'male', dateOfBirth: '', rankId: '', badgeNumber: '', designation: '' };
+const EMPTY = { name: '', email: '', phone: '', gender: 'male', dateOfBirth: '', rankId: '', badgeNumber: '', designation: '', thana: '', zone: '' };
+
+const AVAILABILITY_LABEL = {
+  available: null, // don't clutter the card for the common case
+  on_leave: { label: 'On Leave', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  pending_return: { label: 'Pending Return', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+};
 
 export default function ManageOfficers() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [rankFilter, setRankFilter] = useState('');
+  const [thanaFilter, setThanaFilter] = useState('');
+  const [zoneFilter, setZoneFilter] = useState('');
   const [modal, setModal] = useState(null); // null | 'create' | officer obj
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [form, setForm] = useState(EMPTY);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['op-officers', page, search, rankFilter],
-    queryFn: () => api.get(`/operator/officers?page=${page}&limit=12&search=${search}&rankId=${rankFilter}`).then(r => r.data.data),
+    queryKey: ['op-officers', page, search, rankFilter, thanaFilter, zoneFilter],
+    queryFn: () => api.get(`/operator/officers?page=${page}&limit=12&search=${search}&rankId=${rankFilter}&thana=${thanaFilter}&zone=${zoneFilter}`).then(r => r.data.data),
+  });
+
+  const { data: locations } = useQuery({
+    queryKey: ['op-officer-locations'],
+    queryFn: () => api.get('/operator/officers/locations').then(r => r.data.data),
   });
 
   const { data: ranks = [] } = useQuery({
@@ -47,10 +60,17 @@ export default function ManageOfficers() {
     onError: (err) => toast.error(apiError(err)),
   });
 
+  const markAvailableMut = useMutation({
+    mutationFn: (id) => api.patch(`/operator/officers/${id}/mark-available`),
+    onSuccess: () => { toast.success('Officer marked available for duty'); qc.invalidateQueries(['op-officers']); },
+    onError: (err) => toast.error(apiError(err)),
+  });
+
   const openEdit = (off) => {
     setForm({ name: off.name, email: off.email, phone: off.phone, gender: off.gender || 'male',
       dateOfBirth: off.dateOfBirth ? off.dateOfBirth.split('T')[0] : '',
-      rankId: off.rankRef?._id || '', badgeNumber: off.badgeNumber || '', designation: off.designation || '' });
+      rankId: off.rankRef?._id || '', badgeNumber: off.badgeNumber || '', designation: off.designation || '',
+      thana: off.thana || '', zone: off.zone || '' });
     setModal(off);
   };
 
@@ -103,6 +123,14 @@ export default function ManageOfficers() {
           <option value="">All Ranks</option>
           {ranks.map(r => <option key={r._id} value={r._id}>{r.name} ({r.availableCount})</option>)}
         </select>
+        <select className="input-field sm:w-40" value={thanaFilter} onChange={e => { setThanaFilter(e.target.value); setPage(1); }}>
+          <option value="">All Thana</option>
+          {locations?.thanas?.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="input-field sm:w-40" value={zoneFilter} onChange={e => { setZoneFilter(e.target.value); setPage(1); }}>
+          <option value="">All Zones</option>
+          {locations?.zones?.map(z => <option key={z} value={z}>{z}</option>)}
+        </select>
       </div>
 
       {/* Grid */}
@@ -131,6 +159,12 @@ export default function ManageOfficers() {
                 <span className={`badge ${getStatusColor(officer.status)} shrink-0`}>{officer.status}</span>
               </div>
 
+              {AVAILABILITY_LABEL[officer.dutyAvailability] && (
+                <span className={`self-start text-[11px] font-semibold px-2 py-0.5 rounded-full ${AVAILABILITY_LABEL[officer.dutyAvailability].cls}`}>
+                  {AVAILABILITY_LABEL[officer.dutyAvailability].label}
+                </span>
+              )}
+
               {officer.rankRef && (
                 <span className="self-start inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white text-xs font-semibold" style={{ backgroundColor: officer.rankRef.color }}>
                   {officer.rankRef.code} — {officer.rankRef.name}
@@ -143,6 +177,16 @@ export default function ManageOfficers() {
               </div>
 
               <div className="flex gap-2 mt-auto pt-2 border-t border-gray-100 dark:border-gray-800">
+                {officer.dutyAvailability === 'pending_return' && (
+                  <button
+                    onClick={() => markAvailableMut.mutate(officer._id)}
+                    disabled={markAvailableMut.isPending}
+                    className="btn-primary flex-1 text-xs py-1.5"
+                    title="Clear this officer for duty assignment again"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Mark Available
+                  </button>
+                )}
                 <button onClick={() => openEdit(officer)} className="btn-secondary flex-1 text-xs py-1.5">
                   <Pencil className="w-3 h-3" /> Edit
                 </button>
@@ -181,7 +225,10 @@ export default function ManageOfficers() {
             </div>
             <div><label className="form-label">Badge Number</label><input className="input-field" placeholder="P001" value={form.badgeNumber} onChange={f('badgeNumber')} /></div>
             <div><label className="form-label">Designation</label><input className="input-field" placeholder="Head Constable" value={form.designation} onChange={f('designation')} /></div>
+            <div><label className="form-label">Thana (Police Station)</label><input className="input-field" placeholder="Kotwali" value={form.thana} onChange={f('thana')} /></div>
+            <div><label className="form-label">Zone</label><input className="input-field" placeholder="Zone 1" value={form.zone} onChange={f('zone')} /></div>
           </div>
+          <p className="text-xs text-gray-400 -mt-2">Thana &amp; zone determine leave-approval routing for this officer — set them for Constable/Head Constable ranks especially.</p>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={createMut.isPending || updateMut.isPending} className="btn-primary flex-1">

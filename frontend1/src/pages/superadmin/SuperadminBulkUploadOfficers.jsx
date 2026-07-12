@@ -98,9 +98,10 @@ export default function SuperadminBulkUploadOfficers() {
 
   const downloadTemplate = () => {
     const rows = [
-      ['name', 'email', 'phone', 'gender', 'dateOfBirth', 'rankCode', 'badgeNumber', 'designation'],
-      ['John Doe', 'john@police.gov.in', '9876543210', 'male', '1990-01-15', 'H', 'P001', 'Head Constable'],
-      ['Jane Smith', 'jane@police.gov.in', '9876543211', 'female', '1992-05-20', 'G', 'P002', 'SI'],
+      ['name', 'email', 'phone', 'gender', 'dateOfBirth', 'rank', 'badgeNumber', 'designation', 'thana', 'zone'],
+      ['John Doe', 'john@police.gov.in', '9876543210', 'male', '1990-01-15', 'Head Constable', 'P001', 'Head Constable', 'Kotwali', 'Zone 1'],
+      ['Jane Smith', 'jane@police.gov.in', '9876543211', 'female', '1992-05-20', 'SI', 'P002', 'Sub Inspector', 'Civil Lines', 'Zone 1'],
+      ['राम सिंह', 'ram@police.gov.in', '9876543212', 'male', '1988-03-10', 'कांस्टेबल', 'P003', 'Constable', 'Kotwali', 'Zone 1'],
     ];
     const csv = rows.map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -122,10 +123,11 @@ export default function SuperadminBulkUploadOfficers() {
           <AlertCircle className="w-4 h-4 text-blue-500" /> Excel File Requirements
         </h3>
         <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
-          <li>Required columns: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">name, email, phone, rankCode</code></li>
-          <li>Optional: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">gender, dateOfBirth, badgeNumber, designation</code></li>
+          <li>Required columns: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">name, email, phone, rank</code></li>
+          <li>Optional: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">gender, dateOfBirth, badgeNumber, designation, thana, zone</code></li>
           <li>Phone must be 10-digit Indian mobile number</li>
-          <li>rankCode must match an existing rank (e.g. A, B, C...)</li>
+          <li><code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">rank</code> accepts a rank code, full name, common shortform (e.g. "HC", "SI"), or Hindi name (e.g. "कांस्टेबल") — spacing/punctuation is handled automatically</li>
+          <li><code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">thana</code> and <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">zone</code> are used for leave-approval routing (Inspector/DSP lookup) — set them for Constable/Head Constable rows especially</li>
           <li>Duplicate emails will be skipped automatically</li>
           <li>Credentials are sent via WhatsApp automatically</li>
           <li>You can only upload officers under an admin that belongs to you</li>

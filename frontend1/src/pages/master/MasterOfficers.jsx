@@ -9,15 +9,22 @@ export default function MasterOfficers() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [adminId, setAdminId] = useState('');
+  const [thana, setThana] = useState('');
+  const [zone, setZone] = useState('');
 
   const { data: admins = [] } = useQuery({
     queryKey: ['master-admins-all'],
     queryFn: () => api.get('/master/admins?limit=100').then(r => r.data.data.data),
   });
 
+  const { data: locations } = useQuery({
+    queryKey: ['master-officer-locations', adminId],
+    queryFn: () => api.get(`/master/officers/locations${adminId ? `?adminId=${adminId}` : ''}`).then(r => r.data.data),
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ['master-officers', page, search, adminId],
-    queryFn: () => api.get(`/master/officers?page=${page}&limit=15&search=${search}&adminId=${adminId}`).then(r => r.data.data),
+    queryKey: ['master-officers', page, search, adminId, thana, zone],
+    queryFn: () => api.get(`/master/officers?page=${page}&limit=15&search=${search}&adminId=${adminId}&thana=${thana}&zone=${zone}`).then(r => r.data.data),
   });
 
   return (
@@ -34,6 +41,14 @@ export default function MasterOfficers() {
           <option value="">All Admins</option>
           {admins.map(a => <option key={a._id} value={a._id}>{a.name}</option>)}
         </select>
+        <select className="input-field sm:w-48" value={thana} onChange={e => { setThana(e.target.value); setPage(1); }}>
+          <option value="">All Thana</option>
+          {locations?.thanas?.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="input-field sm:w-48" value={zone} onChange={e => { setZone(e.target.value); setPage(1); }}>
+          <option value="">All Zones</option>
+          {locations?.zones?.map(z => <option key={z} value={z}>{z}</option>)}
+        </select>
       </div>
 
       <div className="card overflow-hidden">
@@ -41,16 +56,16 @@ export default function MasterOfficers() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>
-                {['Officer', 'Badge', 'Rank', 'Admin', 'Phone', 'Status'].map(h => (
+                {['Officer', 'Badge', 'Rank', 'Thana', 'Zone', 'Admin', 'Phone', 'Status'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {isLoading ? (
-                <tr><td colSpan={6} className="text-center py-10"><div className="w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></td></tr>
+                <tr><td colSpan={8} className="text-center py-10"><div className="w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></td></tr>
               ) : data?.data?.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-10">
+                <tr><td colSpan={8} className="text-center py-10">
                   <UserCheck className="w-10 h-10 text-gray-200 mx-auto mb-2" />
                   <p className="text-gray-400 text-sm">No officers found</p>
                 </td></tr>
@@ -76,6 +91,8 @@ export default function MasterOfficers() {
                         </span>
                       ) : '—'}
                     </td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{officer.thana || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{officer.zone || '—'}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{officer.adminRef?.name || '—'}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{officer.phone}</td>
                     <td className="px-4 py-3">

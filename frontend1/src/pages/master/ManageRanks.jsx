@@ -7,7 +7,7 @@ import Modal from '../../components/common/Modal';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import toast from 'react-hot-toast';
 
-const EMPTY = { name: '', code: '', priority: '', color: '#3B82F6' };
+const EMPTY = { name: '', code: '', priority: '', color: '#3B82F6', leaveTier: 'senior', leaveApprovalRole: 'none' };
 
 export default function ManageRanks() {
   const qc = useQueryClient();
@@ -39,7 +39,8 @@ export default function ManageRanks() {
   });
 
   const openEdit = (rank) => {
-    setForm({ name: rank.name, code: rank.code, priority: rank.priority, color: rank.color });
+    setForm({ name: rank.name, code: rank.code, priority: rank.priority, color: rank.color,
+      leaveTier: rank.leaveTier || 'senior', leaveApprovalRole: rank.leaveApprovalRole || 'none' });
     setModal(rank);
   };
 
@@ -88,6 +89,13 @@ export default function ManageRanks() {
                   <div>
                     <p className="font-semibold text-gray-900 dark:text-white">{rank.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Code: {rank.code} · Priority: {rank.priority}</p>
+                    {(rank.leaveApprovalRole !== 'none' || rank.leaveTier === 'junior') && (
+                      <p className="text-[11px] text-primary-600 dark:text-primary-400 mt-0.5">
+                        {rank.leaveApprovalRole === 'inspector' && 'Leave: Thana Inspector (approves junior officers\' short casual leave)'}
+                        {rank.leaveApprovalRole === 'dsp' && 'Leave: Zone DSP (approves junior officers\' longer casual/earned leave)'}
+                        {rank.leaveApprovalRole === 'none' && rank.leaveTier === 'junior' && 'Leave: Junior tier (Constable/HC-style routing)'}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -154,6 +162,28 @@ export default function ManageRanks() {
               </span>
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Leave Tier</label>
+              <select className="input-field" value={form.leaveTier} onChange={f('leaveTier')}>
+                <option value="junior">Junior (Constable / Head Constable style)</option>
+                <option value="senior">Senior (SI / Inspector / DSP style)</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Leave Approval Authority</label>
+              <select className="input-field" value={form.leaveApprovalRole} onChange={f('leaveApprovalRole')}>
+                <option value="none">None</option>
+                <option value="inspector">Inspector (thana-level)</option>
+                <option value="dsp">DSP (zone-level)</option>
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 -mt-2">
+            Junior-tier officers' leave routes to an Inspector/DSP/Admin/Superadmin depending on duration and type.
+            Senior-tier officers' own leave always goes to Admin (or Superadmin for special leave).
+            Mark a rank as an Inspector/DSP approval authority only if officers holding it should approve others' leave.
+          </p>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={createMut.isPending || updateMut.isPending} className="btn-primary flex-1">

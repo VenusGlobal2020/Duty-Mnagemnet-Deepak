@@ -38,6 +38,7 @@ const superadminNav = [
   { to: '/superadmin/officers/bulk-upload', label: 'अधिकारी बल्क अपलोड', icon: Upload },
   { to: '/superadmin/duties', label: 'सभी ड्यूटी', icon: ClipboardList },
   { to: '/superadmin/map-view', label: 'मानचित्र दृश्य', icon: Map },
+  { to: '/superadmin/leave', label: 'अवकाश प्रबंधन', icon: CalendarOff },
   // ...extraNav('/superadmin'),
   { to: '/superadmin/settings', label: 'सेटिंग्स', icon: Settings },
 ];
@@ -49,6 +50,7 @@ const adminNav = [
   { to: '/admin/operators', label: 'ऑपरेटर', icon: Users },
   { to: '/admin/duties', label: 'सभी ड्यूटी', icon: ClipboardList },
   { to: '/admin/map-view', label: 'मानचित्र दृश्य', icon: Map },
+  { to: '/admin/leave', label: 'अवकाश प्रबंधन', icon: CalendarOff },
   // ...extraNav('/admin'),
   { to: '/admin/settings', label: 'सेटिंग्स', icon: Settings },
 ];
@@ -62,8 +64,9 @@ const operatorNav = [
   { to: '/operator/duties/bulk-upload', label: 'ड्यूटी बल्क अपलोड', icon: Upload },
   { to: '/operator/duty-types', label: 'ड्यूटी प्रकार', icon: Layers },
   { to: '/operator/map-view', label: 'मानचित्र दृश्य', icon: Map },
+  { to: '/operator/leave', label: 'अवकाश प्रबंधन', icon: CalendarOff },
   // ...extraNav('/operator'),
-  { to: '/operator/swap-requests', label: 'स्वैप अनुरोध', icon: ArrowLeftRight },
+  // { to: '/operator/swap-requests', label: 'स्वैप अनुरोध', icon: ArrowLeftRight },
   { to: '/operator/settings', label: 'सेटिंग्स', icon: Settings },
 ];
 export function OperatorLayout() { return <BaseLayout navItems={operatorNav} />; }
@@ -74,6 +77,7 @@ const officerNav = [
   { to: '/officer/duties', label: 'मेरी ड्यूटी', icon: ClipboardList },
   { to: '/officer/history', label: 'ड्यूटी इतिहास', icon: FileText },
   { to: '/officer/map-view', label: 'मानचित्र दृश्य', icon: Map },
+  { to: '/officer/leave', label: 'अवकाश प्रबंधन', icon: CalendarOff },
   // ...extraNav('/officer'),
   { to: '/officer/settings', label: 'सेटिंग्स', icon: Settings },
 ];
