@@ -355,8 +355,29 @@ const notifyDutyUpdateToNumber = async (phone, dutyName, updateType, details, lo
   }]);
 };
 
+// ─── Leave Templates ──────────────────────────────────────────────────────────
+// Deliberately the ONLY leave-related WhatsApp message in the whole flow —
+// sent once, only on the FINAL decision (approved/rejected). Submission,
+// routing, and reminders stay in-app + push only to keep WhatsApp cost down.
+// leave_decision: {{1}} officer/admin name, {{2}} leave type, {{3}} dates,
+//                 {{4}} decision (Approved/Rejected), {{5}} decided by, {{6}} note
+const notifyLeaveDecision = async (phone, name, leaveTypeLabel, dateRangeLabel, decision, decidedByLabel, note = '') => {
+  return sendWhatsAppTemplate(phone, 'leave_decision', [{
+    type: 'body',
+    parameters: [
+      { type: 'text', text: name },
+      { type: 'text', text: leaveTypeLabel },
+      { type: 'text', text: dateRangeLabel },
+      { type: 'text', text: decision },
+      { type: 'text', text: decidedByLabel },
+      { type: 'text', text: note || 'N/A' },
+    ],
+  }]);
+};
+
 module.exports = {
   sendWhatsAppTemplate,
+  notifyLeaveDecision,
   notifyDutyAssigned,
   notifyDutyCancelled,
   notifyDutyUpdated,

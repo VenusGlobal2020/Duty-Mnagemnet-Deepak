@@ -14,6 +14,9 @@ const {
   buildOfficersSummary, notifyDutyInfoToNumber, notifyDutyUpdateToNumber,
 } = require('../utils/whatsapp');
 const { cloudinary } = require('../config/cloudinary');
+const { resolveRank, normalizeGender } = require('../utils/rankResolver');
+
+const LeaveRequest = require('../models/LeaveRequest');
 
 // An officer is "busy" while they hold a live assignment (assigned/accepted) on
 // any duty that is still upcoming or ongoing — that means status 'draft' (not
@@ -23,7 +26,12 @@ const { cloudinary } = require('../config/cloudinary');
 // auto/manual assignment flows are allowed to pick from — this is what was
 // missing before, which is why availability counts never went down after
 // officers got assigned.
-const getBusyOfficerIds = async (excludeDutyId = null) => {
+//
+// Also leave-aware: officers currently on approved leave or awaiting an
+// operator's "mark available" after returning are always excluded, and — when
+// dutyDates is supplied — so are officers with ANY approved leave overlapping
+// those specific dates (covers duties created in advance, for a future window).
+const getBusyOfficerIds = async (excludeDutyId = null, dutyDates = null) => {
   const dutyFilter = { status: { $in: ['draft', 'active'] }, 'assignedOfficers.status': { $in: ['assigned', 'accepted'] } };
   if (excludeDutyId) dutyFilter._id = { $ne: excludeDutyId };
 
@@ -36,6 +44,24 @@ const getBusyOfficerIds = async (excludeDutyId = null) => {
       }
     }
   }
+
+  // Officers not currently 'available' (on leave, or returned but not yet
+  // cleared by an operator) can never be assigned, regardless of duty dates.
+  const unavailable = await Officer.find({ dutyAvailability: { $ne: 'available' } }).select('_id');
+  for (const o of unavailable) busy.add(o._id.toString());
+
+  // If we know the duty's own date window, also exclude officers who have an
+  // APPROVED leave overlapping it (even if that leave hasn't started yet).
+  if (dutyDates?.startDate && dutyDates?.endDate) {
+    const conflicting = await LeaveRequest.find({
+      status: 'approved',
+      fromDate: { $lte: dutyDates.endDate },
+      toDate: { $gte: dutyDates.startDate },
+      officerRef: { $ne: null },
+    }).select('officerRef');
+    for (const l of conflicting) busy.add(l.officerRef.toString());
+  }
+
   return busy;
 };
 
@@ -44,10 +70,12 @@ const getBusyOfficerIds = async (excludeDutyId = null) => {
 // @desc   Get officers under this operator's admin
 // @route  GET /api/operator/officers
 const getOfficers = asyncHandler(async (req, res) => {
-  const { page, limit, search, rankId, status } = req.query;
+  const { page, limit, search, rankId, status, thana, zone } = req.query;
   const query = { adminRef: req.user.adminRef };
   if (rankId) query.rankRef = rankId;
   if (status) query.status = status;
+  if (thana) query.thana = { $regex: `^${thana.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' };
+  if (zone) query.zone = { $regex: `^${zone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' };
   if (search) query.$or = [
     { name: { $regex: search, $options: 'i' } },
     { badgeNumber: { $regex: search, $options: 'i' } }
@@ -58,13 +86,29 @@ const getOfficers = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Officers fetched', result);
 });
 
+// @desc   Distinct thana/zone values in use for this admin — powers the
+//         filter dropdowns on the officer list.
+// @route  GET /api/operator/officers/locations
+const getOfficerLocations = asyncHandler(async (req, res) => {
+  const match = { adminRef: req.user.adminRef };
+  const [thanas, zones] = await Promise.all([
+    Officer.distinct('thana', { ...match, thana: { $nin: [null, ''] } }),
+    Officer.distinct('zone', { ...match, zone: { $nin: [null, ''] } }),
+  ]);
+  return successResponse(res, 200, 'Locations fetched', { thanas: thanas.sort(), zones: zones.sort() });
+});
+
 // @desc   Add single officer
 // @route  POST /api/operator/officers
 const addOfficer = asyncHandler(async (req, res) => {
-  const { name, email, phone, gender, dateOfBirth, rankId, badgeNumber, designation } = req.body;
+  const { name, email, phone, gender, dateOfBirth, rankId, rankText, badgeNumber, designation, thana, zone } = req.body;
 
-  const rank = await Rank.findOne({ _id: rankId, isActive: true });
-  if (!rank) return errorResponse(res, 404, 'Rank not found');
+  // Prefer an exact rankId (dropdown) but tolerate a free-text rank value too
+  // (shortform / Hindi / spacing variants) — same resolver used by bulk upload.
+  let rank = null;
+  if (rankId) rank = await Rank.findOne({ _id: rankId, isActive: true });
+  else if (rankText) rank = await resolveRank(rankText);
+  if (!rank) return errorResponse(res, 404, rankText && !rankId ? `Could not recognize rank "${rankText}"` : 'Rank not found');
 
   const exists = await User.findOne({ email: email.toLowerCase() });
   if (exists) return errorResponse(res, 409, 'Email already registered');
@@ -75,16 +119,18 @@ const addOfficer = asyncHandler(async (req, res) => {
 
   const user = await User.create({
     name, email: email.toLowerCase(), phone, password: phone,
-    gender, dateOfBirth, role: 'officer',
+    gender: normalizeGender(gender), dateOfBirth, role: 'officer',
     adminRef: req.user.adminRef, superadminRef: admin.superadminRef,
-    rankRef: rankId, badgeNumber, designation
+    rankRef: rank._id, badgeNumber, designation,
+    thana: thana || null, zone: zone || null,
   });
 
   await Officer.create({
     userRef: user._id, adminRef: req.user.adminRef,
     superadminRef: admin.superadminRef,
-    name, phone, email: email.toLowerCase(), gender, dateOfBirth,
-    rankRef: rankId, badgeNumber, designation
+    name, phone, email: email.toLowerCase(), gender: normalizeGender(gender), dateOfBirth,
+    rankRef: rank._id, badgeNumber, designation,
+    thana: thana || null, zone: zone || null,
   });
 
   const { sendWelcomeMessage } = require('../utils/whatsapp');
@@ -96,24 +142,32 @@ const addOfficer = asyncHandler(async (req, res) => {
 // @desc   Edit officer
 // @route  PUT /api/operator/officers/:officerId
 const updateOfficer = asyncHandler(async (req, res) => {
-  const { name, phone, gender, dateOfBirth, rankId, badgeNumber, designation, status } = req.body;
+  const { name, phone, gender, dateOfBirth, rankId, rankText, badgeNumber, designation, status, thana, zone } = req.body;
 
   const officer = await Officer.findOne({ _id: req.params.officerId, adminRef: req.user.adminRef });
   if (!officer) return errorResponse(res, 404, 'Officer not found');
 
+  let resolvedRankId;
   if (rankId) {
     const rank = await Rank.findOne({ _id: rankId, isActive: true });
     if (!rank) return errorResponse(res, 404, 'Rank not found');
-    officer.rankRef = rankId;
+    resolvedRankId = rank._id;
+  } else if (rankText) {
+    const rank = await resolveRank(rankText);
+    if (!rank) return errorResponse(res, 404, `Could not recognize rank "${rankText}"`);
+    resolvedRankId = rank._id;
   }
+  if (resolvedRankId) officer.rankRef = resolvedRankId;
 
   if (name) officer.name = name;
   if (phone) officer.phone = phone;
-  if (gender) officer.gender = gender;
+  if (gender) officer.gender = normalizeGender(gender);
   if (dateOfBirth) officer.dateOfBirth = dateOfBirth;
   if (badgeNumber !== undefined) officer.badgeNumber = badgeNumber;
   if (designation !== undefined) officer.designation = designation;
   if (status) officer.status = status;
+  if (thana !== undefined) officer.thana = thana || null;
+  if (zone !== undefined) officer.zone = zone || null;
 
   await officer.save();
 
@@ -121,8 +175,10 @@ const updateOfficer = asyncHandler(async (req, res) => {
   const updateData = {};
   if (name) updateData.name = name;
   if (phone) updateData.phone = phone;
-  if (rankId) updateData.rankRef = rankId;
+  if (resolvedRankId) updateData.rankRef = resolvedRankId;
   if (status) updateData.status = status;
+  if (thana !== undefined) updateData.thana = thana || null;
+  if (zone !== undefined) updateData.zone = zone || null;
   await User.findByIdAndUpdate(officer.userRef, updateData);
 
   return successResponse(res, 200, 'Officer updated', { officer });
@@ -152,11 +208,11 @@ const deleteOfficer = asyncHandler(async (req, res) => {
 // ─── DUTY MANAGEMENT ──────────────────────────────────────────────────────────
 
 // Helper: assign officers by rank requirements
-const assignOfficersByRank = async (rankRequirements, adminRef, excludeOfficerIds = []) => {
+const assignOfficersByRank = async (rankRequirements, adminRef, excludeOfficerIds = [], dutyDates = null) => {
   const assigned = [];
   const rankNotAvailable = [];
 
-  const busyIds = await getBusyOfficerIds();
+  const busyIds = await getBusyOfficerIds(null, dutyDates);
   const excludeSet = new Set([...excludeOfficerIds.map(String), ...busyIds]);
 
   for (const req of rankRequirements) {
@@ -284,9 +340,10 @@ const createDuty = asyncHandler(async (req, res) => {
   const parsedPhones = typeof phoneNumbers === 'string'
     ? JSON.parse(phoneNumbers) : phoneNumbers || [];
 
-  // Auto-assign officers
+  // Auto-assign officers — leave-conflict-aware for this duty's actual window
   const { assigned, rankNotAvailable } = await assignOfficersByRank(
-    parsedRequirements.filter(r => r.assignmentType !== 'manual'), req.user.adminRef
+    parsedRequirements.filter(r => r.assignmentType !== 'manual'), req.user.adminRef,
+    [], { startDate: new Date(startDate), endDate: new Date(endDate) }
   );
 
   // Manual assignments
@@ -296,7 +353,7 @@ const createDuty = asyncHandler(async (req, res) => {
     const manuals = typeof manualAssignments === 'string'
       ? JSON.parse(manualAssignments) : manualAssignments;
 
-    const busyIds = await getBusyOfficerIds();
+    const busyIds = await getBusyOfficerIds(null, { startDate: new Date(startDate), endDate: new Date(endDate) });
     const pickedInThisRequest = new Set();
 
     for (const ma of manuals) {
@@ -577,7 +634,7 @@ const updateDuty = asyncHandler(async (req, res) => {
       }
     }
 
-    const busyIds = await getBusyOfficerIds(duty._id);
+    const busyIds = await getBusyOfficerIds(duty._id, { startDate: duty.startDate, endDate: duty.endDate });
 
     for (const req_ of parsedReqs) {
       const targetCount = parseInt(req_.count);
@@ -821,7 +878,7 @@ const replaceOfficer = asyncHandler(async (req, res) => {
   // Find a replacement with same rank — exclude officers on this duty AND
   // officers already busy on any other active duty.
   const currentlyAssigned = duty.assignedOfficers.map(a => a.officerRef.toString());
-  const busyIds = await getBusyOfficerIds(duty._id);
+  const busyIds = await getBusyOfficerIds(duty._id, { startDate: duty.startDate, endDate: duty.endDate });
   const excludeIds = Array.from(new Set([...currentlyAssigned, ...busyIds]));
 
   const replacement = await Officer.findOne({
@@ -906,7 +963,7 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
     return errorResponse(res, 400, 'Officer is already assigned to this duty');
   }
 
-  const busyIds = await getBusyOfficerIds(duty._id);
+  const busyIds = await getBusyOfficerIds(duty._id, { startDate: duty.startDate, endDate: duty.endDate });
   if (busyIds.has(newOfficer._id.toString())) {
     return errorResponse(res, 400, 'Selected officer is already on another active duty');
   }
@@ -964,10 +1021,11 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
 // @desc   Get available officers for a given rank (for manual assignment picker)
 // @route  GET /api/operator/officers/available?rankId=...&excludeDutyId=...
 const getAvailableOfficersByRank = asyncHandler(async (req, res) => {
-  const { rankId, excludeDutyId, search } = req.query;
+  const { rankId, excludeDutyId, search, startDate, endDate } = req.query;
   if (!rankId) return errorResponse(res, 400, 'rankId is required');
 
-  const busyIds = await getBusyOfficerIds(excludeDutyId || null);
+  const dutyDates = startDate && endDate ? { startDate: new Date(startDate), endDate: new Date(endDate) } : null;
+  const busyIds = await getBusyOfficerIds(excludeDutyId || null, dutyDates);
 
   const filter = {
     adminRef: req.user.adminRef,
@@ -1012,6 +1070,142 @@ const getRankAvailability = asyncHandler(async (req, res) => {
   }
 
   return successResponse(res, 200, 'Rank availability fetched', { ranks: result });
+});
+
+// ─── LEAVE-RELATED OFFICER AVAILABILITY ──────────────────────────────────────
+
+// @desc   Mark a returning officer (post-leave) as available for duty again.
+//         Officers stay in 'pending_return' after their leave's end date
+//         passes until an operator explicitly does this — they are never
+//         auto-assigned to a duty in between.
+// @route  PATCH /api/operator/officers/:officerId/mark-available
+const markOfficerAvailable = asyncHandler(async (req, res) => {
+  const officer = await Officer.findOne({ _id: req.params.officerId, adminRef: req.user.adminRef });
+  if (!officer) return errorResponse(res, 404, 'Officer not found');
+  if (officer.dutyAvailability === 'on_leave') {
+    return errorResponse(res, 400, 'Officer is still within their approved leave dates');
+  }
+  if (officer.dutyAvailability === 'available') {
+    return errorResponse(res, 400, 'Officer is already marked available');
+  }
+
+  officer.dutyAvailability = 'available';
+  officer.currentLeaveRef = null;
+  await officer.save();
+
+  if (officer.userRef) {
+    await createNotification({
+      recipientId: officer.userRef,
+      title: 'Marked Available for Duty',
+      body: `You have been marked available for duty assignment again.`,
+      type: 'general',
+    });
+  }
+
+  return successResponse(res, 200, 'Officer marked available for duty', { officer });
+});
+
+// @desc   List operator's officers currently returned-from-leave but not yet
+//         cleared for duty (dutyAvailability = 'pending_return')
+// @route  GET /api/operator/officers/pending-return
+const getPendingReturnOfficers = asyncHandler(async (req, res) => {
+  const officers = await Officer.find({ adminRef: req.user.adminRef, dutyAvailability: 'pending_return' })
+    .populate('rankRef', 'name code color')
+    .populate('currentLeaveRef', 'leaveType fromDate toDate')
+    .sort({ name: 1 });
+  return successResponse(res, 200, 'Pending-return officers fetched', { officers });
+});
+
+// @desc   Suggested replacement officers for a duty slot left vacant by an
+//         officer whose leave was just approved (same rank, available for
+//         the duty's window).
+// @route  GET /api/operator/duties/:dutyId/assignments/:assignmentId/leave-conflict-suggestions
+const getLeaveConflictSuggestions = asyncHandler(async (req, res) => {
+  const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
+  if (!duty) return errorResponse(res, 404, 'Duty not found');
+  const assignment = duty.assignedOfficers.id(req.params.assignmentId);
+  if (!assignment) return errorResponse(res, 404, 'Assignment not found');
+
+  const currentlyAssigned = duty.assignedOfficers
+    .filter(a => ['assigned', 'accepted'].includes(a.status))
+    .map(a => a.officerRef.toString());
+  const busyIds = await getBusyOfficerIds(duty._id, { startDate: duty.startDate, endDate: duty.endDate });
+  const excludeIds = Array.from(new Set([...currentlyAssigned, ...busyIds]));
+
+  const suggestions = await Officer.find({
+    adminRef: req.user.adminRef, rankRef: assignment.rankRef, status: 'active',
+    _id: { $nin: excludeIds },
+  }).select('_id name phone badgeNumber designation').sort({ name: 1 });
+
+  return successResponse(res, 200, 'Suggestions fetched', { suggestions });
+});
+
+// @desc   Resolve a leave-driven duty conflict — replace the on-leave
+//         officer's assignment either with a chosen officer (manual) or the
+//         first available matching-rank officer (auto).
+// @route  PATCH /api/operator/duties/:dutyId/assignments/:assignmentId/resolve-leave-conflict
+//         body: { officerId } (manual) OR { auto: true }
+const resolveLeaveConflict = asyncHandler(async (req, res) => {
+  const { officerId, auto } = req.body;
+  const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id });
+  if (!duty) return errorResponse(res, 404, 'Duty not found');
+  if (!['draft', 'active'].includes(duty.status)) return errorResponse(res, 400, 'Only draft or active duties can be edited');
+
+  const assignment = duty.assignedOfficers.id(req.params.assignmentId);
+  if (!assignment) return errorResponse(res, 404, 'Assignment not found');
+  if (!['assigned', 'accepted'].includes(assignment.status)) {
+    return errorResponse(res, 400, 'This assignment is not currently active');
+  }
+
+  const currentlyAssigned = duty.assignedOfficers
+    .filter(a => ['assigned', 'accepted'].includes(a.status))
+    .map(a => a.officerRef.toString());
+  const busyIds = await getBusyOfficerIds(duty._id, { startDate: duty.startDate, endDate: duty.endDate });
+  const excludeIds = Array.from(new Set([...currentlyAssigned, ...busyIds]));
+
+  let replacement;
+  if (auto) {
+    replacement = await Officer.findOne({
+      adminRef: req.user.adminRef, rankRef: assignment.rankRef, status: 'active',
+      _id: { $nin: excludeIds },
+    });
+    if (!replacement) return errorResponse(res, 404, 'No available officer with the required rank to auto-assign');
+  } else {
+    if (!officerId) return errorResponse(res, 400, 'officerId is required for manual resolution');
+    replacement = await Officer.findOne({ _id: officerId, adminRef: req.user.adminRef, status: 'active' });
+    if (!replacement) return errorResponse(res, 404, 'Selected officer not found');
+    if (excludeIds.includes(replacement._id.toString())) {
+      return errorResponse(res, 400, 'Selected officer is unavailable for this duty\'s dates');
+    }
+  }
+
+  assignment.status = 'replaced';
+  assignment.replacedBy = replacement._id;
+  assignment.replacedAt = new Date();
+  duty.assignedOfficers.push({
+    officerRef: replacement._id, rankRef: assignment.rankRef, status: 'accepted', assignedBy: req.user._id,
+  });
+  duty.timeline.push({ action: 'OFFICER_REPLACED', performedBy: req.user._id, note: 'Reassigned after original officer\'s leave was approved' });
+  await duty.save();
+
+  // Mark the leave's conflict entry resolved
+  await LeaveRequest.updateOne(
+    { 'conflictingDuties.dutyRef': duty._id, 'conflictingDuties.assignmentId': assignment._id },
+    { $set: { 'conflictingDuties.$.resolved': true, 'conflictingDuties.$.resolvedAt': new Date() } }
+  );
+
+  const officerUser = await User.findOne({ _id: replacement.userRef }).select('_id');
+  if (replacement.phone) {
+    await notifyOfficerReplaced(replacement.phone, replacement.name, duty.dutyName, 'Reassigned after previous officer went on leave');
+  }
+  if (officerUser) {
+    await createNotification({
+      recipientId: officerUser._id, title: 'New Duty Assigned',
+      body: `You have been assigned to duty: ${duty.dutyName}`, type: 'duty_assigned', relatedDuty: duty._id,
+    });
+  }
+
+  return successResponse(res, 200, 'Leave conflict resolved', { replacement: { name: replacement.name, _id: replacement._id } });
 });
 
 // ─── BULK DUTY CREATION VIA EXCEL ────────────────────────────────────────────
@@ -1260,8 +1454,9 @@ const bulkCreateDuties = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  getOfficers, addOfficer, updateOfficer, deleteOfficer,
+  getOfficers, addOfficer, updateOfficer, deleteOfficer, getOfficerLocations,
   createDuty, getDuties, getDutyById, updateDuty, cancelDuty, deleteDuty,
   replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank,
   getDutiesForMap, bulkCreateDuties,
+  markOfficerAvailable, getPendingReturnOfficers, getLeaveConflictSuggestions, resolveLeaveConflict,
 };

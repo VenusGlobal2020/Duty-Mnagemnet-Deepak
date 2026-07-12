@@ -54,6 +54,11 @@ const userSchema = new mongoose.Schema({
   rankRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Rank' },
   badgeNumber: { type: String },
   designation: { type: String },
+  // For officer — posting (denormalized copy of Officer.thana/zone), kept in
+  // sync on create/update so leave-approver lookups (e.g. "find the Inspector
+  // of thana X") can query User directly without an extra Officer join.
+  thana: { type: String, trim: true, default: null },
+  zone: { type: String, trim: true, default: null },
 }, { timestamps: true });
 
 // Hash password before save
@@ -73,5 +78,7 @@ userSchema.index({ email: 1 });
 userSchema.index({ role: 1, status: 1 });
 userSchema.index({ superadminRef: 1, role: 1 });
 userSchema.index({ adminRef: 1, role: 1 });
+userSchema.index({ adminRef: 1, role: 1, thana: 1 });
+userSchema.index({ adminRef: 1, role: 1, zone: 1 });
 
 module.exports = mongoose.model('User', userSchema);

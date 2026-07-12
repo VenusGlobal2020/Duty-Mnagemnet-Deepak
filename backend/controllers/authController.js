@@ -35,6 +35,7 @@ const login = asyncHandler(async (req, res) => {
   const accessToken = generateAccessToken(user._id, user.role);
   const refreshToken = generateRefreshToken(user._id);
 
+  await user.populate('rankRef', 'name code color priority leaveTier leaveApprovalRole');
   const userData = user.toObject();
   delete userData.password;
 
@@ -167,7 +168,7 @@ const changePassword = asyncHandler(async (req, res) => {
 // @route  GET /api/auth/me
 const getMe = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id)
-    .populate('rankRef', 'name code color priority')
+    .populate('rankRef', 'name code color priority leaveTier leaveApprovalRole')
     .populate('adminRef', 'name email')
     .populate('superadminRef', 'name email');
   return successResponse(res, 200, 'Profile fetched', { user });

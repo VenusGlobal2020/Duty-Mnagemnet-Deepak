@@ -7,6 +7,7 @@ const Duty = require('../models/Duty');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
 const { sendWelcomeMessage, notifyAccountSuspended } = require('../utils/whatsapp');
 const { createNotification } = require('../utils/notificationService');
+const { resolveRank, normalizeGender } = require('../utils/rankResolver');
 const crypto = require('crypto');
 
 const generateTempPassword = () => crypto.randomBytes(6).toString('hex');
@@ -223,12 +224,16 @@ const activateUser = asyncHandler(async (req, res) => {
 // @desc   Create rank
 // @route  POST /api/master/ranks
 const createRank = asyncHandler(async (req, res) => {
-  const { name, code, priority, color } = req.body;
+  const { name, code, priority, color, leaveTier, leaveApprovalRole } = req.body;
 
   const exists = await Rank.findOne({ $or: [{ code: code.toUpperCase() }, { priority }] });
   if (exists) return errorResponse(res, 409, 'Rank with this code or priority already exists');
 
-  const rank = await Rank.create({ name, code: code.toUpperCase(), priority, color, createdBy: req.user._id });
+  const rank = await Rank.create({
+    name, code: code.toUpperCase(), priority, color, createdBy: req.user._id,
+    leaveTier: leaveTier || 'senior',
+    leaveApprovalRole: leaveApprovalRole || 'none',
+  });
   return successResponse(res, 201, 'Rank created', { rank });
 });
 
@@ -290,9 +295,14 @@ const bulkUploadOfficers = asyncHandler(async (req, res) => {
     phone: 'phone',
     gender: 'gender',
     dateofbirth: 'dateOfBirth',
-    rankcode: 'rankCode',
+    rankcode: 'rank',
+    rank: 'rank',
+    rankname: 'rank',
     badgenumber: 'badgeNumber',
     designation: 'designation',
+    thana: 'thana',
+    policestation: 'thana',
+    zone: 'zone',
   };
 
   const normalizeRow = (row) => {
@@ -328,16 +338,16 @@ const bulkUploadOfficers = asyncHandler(async (req, res) => {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
-      const { name, email, phone, gender, dateOfBirth, rankCode, badgeNumber, designation } = row;
+      const { name, email, phone, gender, dateOfBirth, rank: rankInput, badgeNumber, designation, thana, zone } = row;
 
-      if (!name || !email || !phone || !rankCode) {
+      if (!name || !email || !phone || !rankInput) {
         results.failed.push({ row: name || email, reason: 'Missing required fields' });
       } else if (!/^[6-9]\d{9}$/.test(String(phone))) {
         results.failed.push({ row: email, reason: 'Invalid phone number' });
       } else {
-        const rank = await Rank.findOne({ code: String(rankCode).toUpperCase(), isActive: true });
+        const rank = await resolveRank(rankInput);
         if (!rank) {
-          results.failed.push({ row: email, reason: `Rank code '${rankCode}' not found` });
+          results.failed.push({ row: email, reason: `Rank '${rankInput}' not recognized` });
         } else {
           const existingUser = await User.findOne({ email: email.toLowerCase() });
           if (existingUser) {
@@ -346,22 +356,26 @@ const bulkUploadOfficers = asyncHandler(async (req, res) => {
             const tempPassword = generateTempPassword();
             const userDoc = await User.create({
               name, email: email.toLowerCase(), phone: String(phone),
-              password: String(phone), gender: gender || 'male',
+              password: String(phone), gender: normalizeGender(gender),
               dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : new Date('1990-01-01'),
               role: 'officer', adminRef: adminId,
               superadminRef: admin.superadminRef, rankRef: rank._id,
               badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
-              designation
+              designation,
+              thana: thana ? String(thana).trim() : null,
+              zone: zone ? String(zone).trim() : null,
             });
 
             await Officer.create({
               userRef: userDoc._id, adminRef: adminId,
               superadminRef: admin.superadminRef,
               name, phone: String(phone), email: email.toLowerCase(),
-              gender: gender || 'male',
+              gender: normalizeGender(gender),
               dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
               rankRef: rank._id, badgeNumber: badgeNumber ? String(badgeNumber) : undefined,
-              designation
+              designation,
+              thana: thana ? String(thana).trim() : null,
+              zone: zone ? String(zone).trim() : null,
             });
 
             await sendWelcomeMessage(String(phone), name, `Officer (${rank.name})`, email, tempPassword);
@@ -405,11 +419,25 @@ const getAllOfficers = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Officers fetched', result);
 });
 
+// @desc   Distinct thana/zone values in use — powers the filter dropdowns.
+// @route  GET /api/master/officers/locations
+const getOfficerLocations = asyncHandler(async (req, res) => {
+  const { adminId } = req.query;
+  const match = adminId ? { adminRef: adminId } : {};
+  const [thanas, zones] = await Promise.all([
+    Officer.distinct('thana', { ...match, thana: { $nin: [null, ''] } }),
+    Officer.distinct('zone', { ...match, zone: { $nin: [null, ''] } }),
+  ]);
+  return successResponse(res, 200, 'Locations fetched', { thanas: thanas.sort(), zones: zones.sort() });
+});
+ 
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 module.exports = {
   createSuperadmin, getSuperadmin, updateAdminCreationLimit,
   getAdmins, getAdminDetails,
   suspendUser, activateUser,
   createRank, getRanks, updateRank, deleteRank,
-  bulkUploadOfficers, getAllOfficers,
+  bulkUploadOfficers, getAllOfficers, getOfficerLocations,
   getDutiesForMap,
 };

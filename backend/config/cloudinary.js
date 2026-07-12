@@ -50,4 +50,17 @@ const uploadProfileImage = multer({
   }
 });
 
-module.exports = { cloudinary, uploadOfficerExcel, uploadDutyDoc, uploadProfileImage };
+// Optional supporting document for a leave request (medical certificate, etc.)
+const uploadLeaveDoc = multer({
+  storage: createStorage('leave_documents'),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('File type not supported'), false);
+  }
+});
+
+module.exports = { cloudinary, uploadOfficerExcel, uploadDutyDoc, uploadProfileImage, uploadLeaveDoc };
