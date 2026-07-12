@@ -50,7 +50,7 @@ const run = async () => {
   }
 
   if (!droppedAny) {
-    console.log('\nℹ️  No stale index found — nothing to drop.');
+    console.log('\nℹ️   No stale index found — nothing to drop.');
   }
 
   const hasCorrectIndex = (await collection.indexes()).some(isCorrectAttendanceIndex);
