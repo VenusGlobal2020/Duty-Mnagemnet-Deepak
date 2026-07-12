@@ -106,7 +106,7 @@ const notifyAccountSuspended = async (phone, name, reason) => {
 };
 
 // forgot_password_otp: {{1}} name, {{2}} OTP, {{3}} expiry minutes
-// const sendOTPWhatsApp = async (phone, otp) => {
+// const sendOTPWhatsApp = async (phone, name, otp) => {
 //   return sendWhatsAppTemplate(phone, 'forgot_password_otp', [{
 //     type: 'body',
 //     parameters: [

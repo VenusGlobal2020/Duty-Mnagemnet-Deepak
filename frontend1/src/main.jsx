@@ -23,16 +23,18 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           toastOptions={{
             duration: 3500,
             style: {
-              borderRadius: '10px',
-              fontFamily: 'Inter, sans-serif',
+              borderRadius: '12px',
+              fontFamily: '"Plus Jakarta Sans", Inter, sans-serif',
               fontSize: '14px',
-              background: '#0F172A',
-              color: '#EDF1F7',
-              border: '1px solid rgba(255,255,255,0.08)',
-              boxShadow: '0 12px 32px -16px rgba(0,0,0,0.5)',
+              fontWeight: 500,
+              background: '#FFFFFF',
+              color: '#1E293B',
+              border: '1px solid #E2E8F0',
+              boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 12px 32px -12px rgba(15,23,42,0.18)',
+              padding: '10px 14px',
             },
-            success: { iconTheme: { primary: '#22D3EE', secondary: '#0F172A' } },
-            error: { iconTheme: { primary: '#ef4444', secondary: '#0F172A' } },
+            success: { iconTheme: { primary: '#6339E0', secondary: '#FFFFFF' } },
+            error: { iconTheme: { primary: '#ef4444', secondary: '#FFFFFF' } },
           }}
         />
       </QueryClientProvider>

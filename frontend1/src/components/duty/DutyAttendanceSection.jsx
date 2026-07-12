@@ -239,7 +239,7 @@ export default function DutyAttendanceSection({ dutyId }) {
       ) : !showAll ? (
         // Single selected day
         <div className="rounded-xl border border-ink-200 dark:border-ink-700 overflow-hidden">
-          <div className="bg-ink-800 dark:bg-ink-900 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+          <div className="bg-gradient-to-r from-ink-700 to-ink-800 dark:from-ink-900 dark:to-ink-950 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
             <span className="text-sm font-semibold text-white">{selectedDay?.dayLabel}</span>
             <span className="text-xs text-ink-300">{selectedDay?.officers?.length || 0} officer(s) on duty</span>
           </div>
@@ -254,7 +254,7 @@ export default function DutyAttendanceSection({ dutyId }) {
           </p>
           {dailyAttendance.map(day => (
             <div key={day.date} className="rounded-xl border border-ink-200 dark:border-ink-700 overflow-hidden">
-              <div className="bg-ink-800 dark:bg-ink-900 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+              <div className="bg-gradient-to-r from-ink-700 to-ink-800 dark:from-ink-900 dark:to-ink-950 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
                 <span className="text-sm font-semibold text-white">{day.dayLabel}</span>
                 <span className="text-xs text-ink-300">{day.officers.length} officer(s) on duty</span>
               </div>
