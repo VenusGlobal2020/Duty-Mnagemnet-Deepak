@@ -4,19 +4,19 @@ import { Upload, FileSpreadsheet, Download, CheckCircle, XCircle, AlertCircle } 
 import api from '../../api/axios';
 import toast from 'react-hot-toast';
 
-export default function BulkUploadOfficers() {
+// Same feature the master has (see pages/master/BulkUploadOfficers.jsx),
+// scoped to this superadmin's own admins via /api/superadmin/... routes.
+export default function SuperadminBulkUploadOfficers() {
   const [adminId, setAdminId] = useState('');
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  // Live per-officer progress, driven by the NDJSON stream from the backend
-  // — { processed, total, percent, created, skipped, failed, lastRow }
   const [progress, setProgress] = useState(null);
 
   const { data: admins = [] } = useQuery({
-    queryKey: ['master-admins-all'],
-    queryFn: () => api.get('/master/admins?limit=100').then(r => r.data.data.data),
+    queryKey: ['superadmin-admins-all'],
+    queryFn: () => api.get('/superadmin/admins?limit=100').then(r => r.data.data.data),
   });
 
   const handleDrop = (e) => {
@@ -26,9 +26,6 @@ export default function BulkUploadOfficers() {
     else toast.error('Only Excel files (.xlsx, .xls) allowed');
   };
 
-  // Uploads via fetch() (rather than axios) so we can read the response body
-  // as a stream: the backend now sends one NDJSON progress event per officer
-  // row as it's processed, instead of one buffered JSON response at the end.
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!adminId) { toast.error('Select an admin'); return; }
@@ -45,7 +42,7 @@ export default function BulkUploadOfficers() {
 
       const token = localStorage.getItem('accessToken');
       const base = api.defaults.baseURL || '';
-      const res = await fetch(`${base}/master/officers/bulk-upload`, {
+      const res = await fetch(`${base}/superadmin/officers/bulk-upload`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -116,7 +113,7 @@ export default function BulkUploadOfficers() {
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">Bulk Upload Officers</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Upload an Excel file to add multiple officers at once</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Upload an Excel file to add multiple officers at once, under one of your admins</p>
       </div>
 
       {/* Instructions */}
@@ -131,6 +128,7 @@ export default function BulkUploadOfficers() {
           <li>rankCode must match an existing rank (e.g. A, B, C...)</li>
           <li>Duplicate emails will be skipped automatically</li>
           <li>Credentials are sent via WhatsApp automatically</li>
+          <li>You can only upload officers under an admin that belongs to you</li>
         </ul>
         <button onClick={downloadTemplate} className="btn-secondary mt-3 text-sm">
           <Download className="w-3.5 h-3.5" /> Download Template (CSV)
@@ -159,13 +157,13 @@ export default function BulkUploadOfficers() {
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
-            onClick={() => document.getElementById('file-input').click()}
+            onClick={() => document.getElementById('sp-file-input').click()}
             className={`mt-1 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
               dragging ? 'border-primary-400 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-300 dark:border-gray-700 hover:border-primary-400 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
             <input
-              id="file-input" type="file"
+              id="sp-file-input" type="file"
               accept=".xlsx,.xls"
               className="hidden"
               onChange={e => setFile(e.target.files[0])}
@@ -192,7 +190,7 @@ export default function BulkUploadOfficers() {
         </button>
       </form>
 
-      {/* Live progress bar — how many officers have been processed so far */}
+      {/* Live progress bar */}
       {uploading && progress && (
         <div className="card p-5 space-y-3">
           <div className="flex items-center justify-between gap-3">

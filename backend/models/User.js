@@ -24,13 +24,30 @@ const userSchema = new mongoose.Schema({
   suspendedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   suspendedAt: Date,
   suspendReason: String,
+  // Only meaningful for role === 'superadmin'. Set/updated by the master —
+  // caps how many admins this superadmin is allowed to create. 0 means the
+  // superadmin currently has no admin-creation quota (master hasn't granted
+  // one yet). Enforced in superadminController.createAdmin.
+  adminCreationLimit: { type: Number, default: 0, min: 0 },
   // Profile
   profileImage: { type: String },
   profileImagePublicId: { type: String },
   // Password reset
   passwordResetOTP: { type: String, select: false },
   passwordResetOTPExpire: { type: Date, select: false },
-  // NOTE: fcmToken removed — Firebase push notifications removed from system
+  // Firebase Cloud Messaging token for this device/browser session — set via
+  // PATCH /api/auth/fcm-token whenever the client obtains/refreshes a token.
+  // A single field (not an array) by design: logging in on a new device
+  // simply overwrites the old token, matching how the frontend re-registers
+  // on every login/app load in utils/firebase.js.
+  fcmToken: { type: String, default: null },
+
+  // Separate FCM token for the officer's MOBILE APP (DutyOfficerApp),
+  // written by appbackend's PATCH /api/mobile/notifications/fcm-token.
+  // Kept apart from `fcmToken` (the web dashboard's token) on purpose, so
+  // logging into the app doesn't stomp the web session's push token and
+  // vice versa — both can now receive push notifications at the same time.
+  fcmTokenApp: { type: String, default: null },
   // Last login
   lastLogin: Date,
   // For officer — rank reference (denormalized for quick auth middleware access)

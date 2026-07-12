@@ -8,6 +8,7 @@ const {
   resetPassword,
   changePassword,
   getMe,
+  updateFcmToken,
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -18,6 +19,6 @@ router.post('/verify-otp', verifyPasswordOTP);
 router.post('/reset-password', resetPassword);
 router.patch('/change-password', protect, changePassword);
 router.get('/me', protect, getMe);
-// NOTE: /fcm-token route removed — Firebase push notifications removed
+router.patch('/fcm-token', protect, updateFcmToken);
 
 module.exports = router;

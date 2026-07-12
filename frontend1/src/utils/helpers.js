@@ -50,8 +50,8 @@ export const getPriorityLabel = (priority) => {
 export const getRoleLabel = (role) => {
   const map = {
     master: 'मास्टर',
-    superadmin: 'एसपी (सुपरएडमिन)',
-    admin: 'एसीपी (एडमिन)',
+    superadmin: 'सुपरएडमिन',
+    admin: 'एडमिन',
     operator_special: 'विशेष ऑपरेटर',
     operator_regular: 'सामान्य ऑपरेटर',
     officer: 'अधिकारी',

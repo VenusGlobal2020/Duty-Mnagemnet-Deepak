@@ -30,7 +30,17 @@ const userSchema = new mongoose.Schema({
   // Password reset
   passwordResetOTP: { type: String, select: false },
   passwordResetOTPExpire: { type: Date, select: false },
-  // NOTE: fcmToken removed — Firebase push notifications removed from system
+  // Firebase Cloud Messaging token for THIS device (the mobile app).
+  // IMPORTANT: this is the exact same field name/collection `backend` (the
+  // web dashboard's server) already reads from in utils/push.js whenever it
+  // sends a push notification (duty assigned, swap, etc.) — backend and
+  // appbackend point at the same MongoDB database, so writing it here from
+  // the app is all that's needed to make those existing pushes reach the
+  // phone too. See appbackend/controllers/notificationController.js.
+  // NOTE: backend overwrites this same field on every web login, so only
+  // the most-recently-logged-in device (web or app) receives push at a
+  // given time — that's existing backend behavior, unchanged here.
+  fcmToken: { type: String, default: null },
   // Last login
   lastLogin: Date,
   // For officer — rank reference (denormalized for quick auth middleware access)

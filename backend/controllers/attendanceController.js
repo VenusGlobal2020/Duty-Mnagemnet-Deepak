@@ -3,10 +3,11 @@ const Attendance = require('../models/Attendance');
 const Duty = require('../models/Duty');
 const Officer = require('../models/Officer');
 const Rank = require('../models/Rank');
+const TrackLog = require('../models/TrackLog'); // ← NEW: officer GPS track, written by the mobile appbackend
 const { successResponse, errorResponse } = require('../utils/response');
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const CHECKIN_RADIUS_METERS = 1000; // 1 km
+const CHECKIN_RADIUS_METERS = 200; // 200m
 
 // ─── UTILITY ─────────────────────────────────────────────────────────────────
 
@@ -294,11 +295,25 @@ const checkIn = asyncHandler(async (req, res) => {
     },
   };
 
-  const attendance = await Attendance.findOneAndUpdate(
-    { dutyRef: duty._id, officerRef: officer._id, date: today },
-    attendanceData,
-    { upsert: true, new: true }
-  );
+  let attendance;
+  try {
+    attendance = await Attendance.findOneAndUpdate(
+      { dutyRef: duty._id, officerRef: officer._id, date: today },
+      attendanceData,
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    // Defensive fallback: if a duplicate-key collision still slips through
+    // (e.g. two simultaneous check-in requests, or an index sync that
+    // hasn't run yet on this deployment — see config/db.js), don't leak a
+    // raw "Dutyref already exists" DB error. The only realistic cause of a
+    // collision on this exact (dutyRef, officerRef, date) key is that a
+    // check-in for today already exists, so say that plainly instead.
+    if (err.code === 11000) {
+      return errorResponse(res, 409, 'You have already checked in today for this duty');
+    }
+    throw err;
+  }
 
   return successResponse(res, 200, 'Check-in successful', {
     attendance: {
@@ -1032,6 +1047,73 @@ const getAttendanceHistory = asyncHandler(async (req, res) => {
   });
 });
 
+// ─── OFFICER TRACK (GPS route recorded by the mobile app) ────────────────────
+
+// @desc   Get the GPS track recorded on the officer's mobile app for ONE
+//         specific attendance record (i.e. one check-in → check-out shift),
+//         for drawing as a route on a map (Mappls Polyline).
+//
+//         One Attendance document = one shift = at most one TrackLog
+//         (unique on attendanceRef), so passing the attendance's own _id is
+//         all that's needed — no separate dutyId/officerId/date lookup.
+// @route  GET /api/attendance/:attendanceId/track
+// @access Operator (own duties), Admin/Superadmin (their hierarchy), Master (all)
+const getAttendanceTrack = asyncHandler(async (req, res) => {
+  const { attendanceId } = req.params;
+  const role = req.user.role;
+
+  const attendance = await Attendance.findById(attendanceId)
+    .populate('officerRef', 'name badgeNumber phone')
+    .populate('dutyRef', 'dutyName locationName location sourceLocation destinationLocation dutyType');
+
+  if (!attendance) return errorResponse(res, 404, 'Attendance record not found');
+
+  // Same hierarchy scoping used everywhere else in this controller —
+  // operator/admin/superadmin can each only view attendance that actually
+  // belongs to their own chain; master has no restriction.
+  if (role === 'officer') {
+    return errorResponse(res, 403, 'Access denied');
+  } else if (
+    (role === 'operator_special' || role === 'operator_regular') &&
+    String(attendance.operatorRef) !== String(req.user._id)
+  ) {
+    return errorResponse(res, 403, 'Access denied');
+  } else if (role === 'admin' && String(attendance.adminRef) !== String(req.user._id)) {
+    return errorResponse(res, 403, 'Access denied');
+  } else if (role === 'superadmin' && String(attendance.superadminRef) !== String(req.user._id)) {
+    return errorResponse(res, 403, 'Access denied');
+  }
+
+  const track = await TrackLog.findOne({ attendanceRef: attendance._id });
+
+  return successResponse(res, 200, 'Track fetched', {
+    officer: attendance.officerRef
+      ? { name: attendance.officerRef.name, badgeNumber: attendance.officerRef.badgeNumber }
+      : null,
+    duty: attendance.dutyRef
+      ? {
+          dutyName: attendance.dutyRef.dutyName,
+          locationName: attendance.dutyRef.locationName,
+          location: attendance.dutyRef.location,
+          sourceLocation: attendance.dutyRef.sourceLocation,
+          destinationLocation: attendance.dutyRef.destinationLocation,
+          dutyType: attendance.dutyRef.dutyType,
+        }
+      : null,
+    date: attendance.date,
+    checkedInAt: attendance.checkedInAt,
+    checkedOutAt: attendance.checkedOutAt,
+    checkInLocation: attendance.checkInLocation,
+    checkOutLocation: attendance.checkOutLocation,
+    hasTrack: !!track,
+    points: track?.points || [],
+    pointCount: track?.pointCount || 0,
+    totalDistanceMeters: track?.totalDistanceMeters || 0,
+    firstPointAt: track?.firstPointAt || null,
+    lastPointAt: track?.lastPointAt || null,
+  });
+});
+
 module.exports = {
   checkIn,
   checkOut,
@@ -1039,4 +1121,5 @@ module.exports = {
   getDutyAttendance,
   exportAttendancePDF,
   getAttendanceHistory,
+  getAttendanceTrack,
 };

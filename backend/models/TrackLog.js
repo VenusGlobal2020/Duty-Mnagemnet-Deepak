@@ -1,5 +1,13 @@
 const mongoose = require('mongoose');
 
+// This model is READ-ONLY from the main backend's point of view — the
+// mobile app's backend (appbackend/serverMobile.js) is the one actually
+// writing to this collection via services/trackingService.js. Both backends
+// connect to the SAME MONGO_URI, so this just points at the exact same
+// 'tracklogs' collection Mongoose already created there. Schema kept
+// identical to the appbackend version so populate()/field access behaves
+// the same on both sides.
+
 const MAX_POINTS_PER_SHIFT = 6000;
 
 const trackPointSchema = new mongoose.Schema(
@@ -22,7 +30,7 @@ const trackLogSchema = new mongoose.Schema(
     dutyRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Duty', required: true },
     officerUserRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
-    date: { type: String, required: true }, // YYYY-MM-DD, for the day-picker in the app
+    date: { type: String, required: true }, // YYYY-MM-DD
 
     points: { type: [trackPointSchema], default: [] },
 
@@ -34,7 +42,6 @@ const trackLogSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// One track log per shift — guaranteed by the database, not just app logic.
 trackLogSchema.index({ attendanceRef: 1 }, { unique: true });
 trackLogSchema.index({ dutyRef: 1, officerUserRef: 1, date: -1 });
 trackLogSchema.index({ officerUserRef: 1, date: -1 });

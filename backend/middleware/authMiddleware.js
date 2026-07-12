@@ -1,6 +1,7 @@
 const { verifyAccessToken } = require('../utils/jwt');
 const User = require('../models/User');
 const { errorResponse } = require('../utils/response');
+const { getEffectiveSuspension } = require('../utils/hierarchyStatus');
 
 const protect = async (req, res, next) => {
   try {
@@ -14,32 +15,13 @@ const protect = async (req, res, next) => {
     const user = await User.findById(decoded.id).select('-password');
     if (!user) return errorResponse(res, 401, 'User not found');
 
-    // Check suspension chain
-    if (user.status === 'suspended') {
-      return errorResponse(res, 403, 'Your account has been suspended. Contact your administrator.');
-    }
-
-    // If admin - check superadmin is not suspended
-    if (user.role === 'admin' && user.superadminRef) {
-      const superadmin = await User.findById(user.superadminRef).select('status');
-      if (superadmin?.status === 'suspended') {
-        return errorResponse(res, 403, 'Access denied. Parent account is suspended.');
-      }
-    }
-
-    // If operator - check admin hierarchy
-    if ((user.role === 'operator_special' || user.role === 'operator_regular') && user.adminRef) {
-      const admin = await User.findById(user.adminRef).select('status superadminRef');
-      if (admin?.status === 'suspended') {
-        return errorResponse(res, 403, 'Access denied. Parent account is suspended.');
-      }
-      if (admin?.superadminRef) {
-        const superadmin = await User.findById(admin.superadminRef).select('status');
-        if (superadmin?.status === 'suspended') {
-          return errorResponse(res, 403, 'Access denied. Parent account is suspended.');
-        }
-      }
-    }
+    // Check suspension chain — covers the user's own status AND every
+    // ancestor above them (admin -> superadmin, operator/officer -> admin ->
+    // superadmin), so a master suspending a superadmin (or a superadmin
+    // suspending an admin) immediately locks out everyone beneath, even
+    // mid-session, without needing to touch descendant documents.
+    const { suspended, reason } = await getEffectiveSuspension(user);
+    if (suspended) return errorResponse(res, 403, reason);
 
     req.user = user;
     next();

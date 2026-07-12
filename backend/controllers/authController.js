@@ -5,6 +5,7 @@ const { generateOTP, hashOTP, verifyOTP } = require('../utils/otp');
 const { sendOTPWhatsApp } = require('../utils/whatsapp');
 const { sendOTPEmail } = require('../utils/email');
 const { successResponse, errorResponse } = require('../utils/response');
+const { getEffectiveSuspension } = require('../utils/hierarchyStatus');
 
 // @desc   Login
 // @route  POST /api/auth/login
@@ -15,11 +16,19 @@ const login = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
   if (!user) return errorResponse(res, 401, 'Invalid credentials');
 
-  if (user.status === 'suspended') return errorResponse(res, 403, 'Account suspended. Contact administrator.');
   if (user.status === 'inactive') return errorResponse(res, 403, 'Account is inactive.');
 
   const isMatch = await user.matchPassword(password);
   if (!isMatch) return errorResponse(res, 401, 'Invalid credentials');
+
+  // Hierarchy-aware suspension check — blocks login not only when this
+  // user's own account is suspended, but also when a parent in their chain
+  // (their admin, or the superadmin above that admin) has been suspended.
+  // This is what makes "suspend superadmin -> all admins/operators locked
+  // out" and "suspend admin -> its operators locked out" work immediately,
+  // even though those descendant accounts' own `status` field never changes.
+  const { suspended, reason } = await getEffectiveSuspension(user);
+  if (suspended) return errorResponse(res, 403, reason);
 
   await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
@@ -164,4 +173,21 @@ const getMe = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Profile fetched', { user });
 });
 
-module.exports = { login, refreshToken, forgotPassword, verifyPasswordOTP, resetPassword, changePassword, getMe };
+// @desc   Register/update this device's Firebase Cloud Messaging token so
+//         the server can push notifications to it. Called by the frontend
+//         right after login and whenever Firebase hands it a fresh token.
+//         A single token per user by design — logging in elsewhere simply
+//         overwrites the previous device's token.
+// @route  PATCH /api/auth/fcm-token
+const updateFcmToken = asyncHandler(async (req, res) => {
+  const { fcmToken } = req.body;
+  if (!fcmToken) return errorResponse(res, 400, 'fcmToken is required');
+
+  await User.findByIdAndUpdate(req.user._id, { fcmToken });
+  return successResponse(res, 200, 'Push notification token updated');
+});
+
+module.exports = {
+  login, refreshToken, forgotPassword, verifyPasswordOTP, resetPassword,
+  changePassword, getMe, updateFcmToken,
+};

@@ -13,6 +13,7 @@ import BulkUploadOfficers from './pages/master/BulkUploadOfficers';
 import MasterOfficers from './pages/master/MasterOfficers';
 import SuperadminDashboard from './pages/superadmin/SuperadminDashboard';
 import SuperadminAdmins from './pages/superadmin/SuperadminAdmins';
+import SuperadminBulkUploadOfficers from './pages/superadmin/SuperadminBulkUploadOfficers';
 import SuperadminDuties from './pages/superadmin/SuperadminDuties';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminOperators from './pages/admin/AdminOperators';
@@ -21,6 +22,7 @@ import OperatorDashboard from './pages/operator/OperatorDashboard';
 import ManageOfficers from './pages/operator/ManageOfficers';
 import ManageDuties from './pages/operator/ManageDuties';
 import CreateDuty from './pages/operator/CreateDuty';
+import BulkCreateDuties from './pages/operator/BulkCreateDuties';
 import ManageDutyTypes from './pages/operator/ManageDutyTypes';
 import DutyDetail from './pages/operator/DutyDetail';
 import OperatorSwapRequests from './pages/operator/OperatorSwapRequests';
@@ -33,6 +35,7 @@ import NotificationsPage from './pages/shared/NotificationsPage';
 import ComingSoonPage from './pages/shared/ComingSoonPage';
 import MapView from './pages/shared/MapView';
 import LoadingSpinner from './components/common/LoadingSpinner';
+import usePushNotifications from './hooks/usePushNotifications';
 
 const ROLE_PATHS = {
   master: '/master', superadmin: '/superadmin', admin: '/admin',
@@ -55,6 +58,7 @@ const PublicRoute = ({ children }) => {
 };
 
 function AppRoutes() {
+  usePushNotifications();
   return (
     <Routes>
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
@@ -77,6 +81,7 @@ function AppRoutes() {
       <Route path="/superadmin" element={<ProtectedRoute allowedRoles={['superadmin']}><SuperadminLayout /></ProtectedRoute>}>
         <Route index element={<SuperadminDashboard />} />
         <Route path="admins" element={<SuperadminAdmins />} />
+        <Route path="officers/bulk-upload" element={<SuperadminBulkUploadOfficers />} />
         <Route path="duties" element={<SuperadminDuties />} />
         <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<ComingSoonPage />} />
@@ -101,6 +106,7 @@ function AppRoutes() {
         <Route path="officers" element={<ManageOfficers />} />
         <Route path="duties" element={<ManageDuties />} />
         <Route path="duties/create" element={<CreateDuty />} />
+        <Route path="duties/bulk-upload" element={<BulkCreateDuties />} />
         <Route path="duties/:dutyId" element={<DutyDetail />} />
         <Route path="duty-types" element={<ManageDutyTypes />} />
         <Route path="swap-requests" element={<OperatorSwapRequests />} />

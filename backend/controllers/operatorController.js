@@ -1,4 +1,5 @@
 const asyncHandler = require('express-async-handler');
+const xlsx = require('xlsx');
 const User = require('../models/User');
 const Officer = require('../models/Officer');
 const Duty = require('../models/Duty');
@@ -207,8 +208,19 @@ const createDuty = asyncHandler(async (req, res) => {
     sourceLat, sourceLng, destLat, destLng,
   } = req.body;
 
-  if (!dutyName || !locationName || !lat || !lng || !startDate || !endDate || !priority) {
+  // MOBILITY duties don't use the standalone lat/lng fields at all — officers
+  // check IN near the source point and check OUT near the destination point,
+  // so only source/destination coordinates apply to them.
+  const isMobility = isSpecial && dutyType === 'MOBILITY';
+
+  if (!dutyName || !locationName || !startDate || !endDate || !priority) {
     return errorResponse(res, 400, 'Missing required fields');
+  }
+
+  // Non-MOBILITY duties (regular duties, VVIP, CITY-POINT, CRIMINAL) still
+  // need a direct lat/lng — only MOBILITY skips this in favor of source/dest.
+  if (!isMobility && (!lat || !lng)) {
+    return errorResponse(res, 400, 'Latitude and longitude are required');
   }
 
   if (new Date(startDate) >= new Date(endDate)) {
@@ -219,11 +231,10 @@ const createDuty = asyncHandler(async (req, res) => {
     return errorResponse(res, 400, 'Invalid duty type');
   }
 
-  // MOBILITY duties need both a source and a destination point — officers
-  // check IN near the source and check OUT near the destination.
+  // MOBILITY duties need both a source and a destination point.
   let sourceLocation = null;
   let destinationLocation = null;
-  if (isSpecial && dutyType === 'MOBILITY') {
+  if (isMobility) {
     if (!sourceLat || !sourceLng || !destLat || !destLng) {
       return errorResponse(res, 400, 'Source and destination coordinates are required for a MOBILITY duty');
     }
@@ -308,9 +319,17 @@ const createDuty = asyncHandler(async (req, res) => {
     }
   }
 
+  // For MOBILITY duties there's no standalone lat/lng from the form — use the
+  // source point as the duty's primary "location" so anything elsewhere that
+  // reads duty.location (map view, maps link, geo-fenced attendance fallback,
+  // etc.) keeps working without any further changes.
+  const dutyLocation = isMobility
+    ? sourceLocation
+    : { lat: parseFloat(lat), lng: parseFloat(lng) };
+
   const duty = await Duty.create({
     dutyName, locationName,
-    location: { lat: parseFloat(lat), lng: parseFloat(lng) },
+    location: dutyLocation,
     startDate: new Date(startDate), endDate: new Date(endDate),
     priority: parseInt(priority),
     ...(isSpecial && dutyType ? { dutyType } : {}),
@@ -348,7 +367,7 @@ const createDuty = asyncHandler(async (req, res) => {
         recipientId: ao.officerRef.userRef,
         title: 'New Duty Assigned',
         body: `You have been assigned to duty: ${dutyName} at ${locationName}`,
-        type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
+        type: 'duty_assigned', relatedDuty: duty._id
       });
     }
   }
@@ -504,6 +523,8 @@ const updateDuty = asyncHandler(async (req, res) => {
     return errorResponse(res, 400, 'End date must be after start date');
   }
 
+  // lat/lng on update remain fully optional (as before) — this naturally
+  // covers MOBILITY duties too, since they simply won't send these fields.
   if (req.body.lat || req.body.lng) {
     updateData.location = {
       lat: parseFloat(req.body.lat || duty.location.lat),
@@ -629,7 +650,7 @@ const updateDuty = asyncHandler(async (req, res) => {
   await duty.save();
 
   const updated = await Duty.findById(duty._id)
-    .populate('assignedOfficers.officerRef', 'name phone')
+    .populate('assignedOfficers.officerRef', 'name phone userRef')
     .populate('assignedOfficers.rankRef', 'name')
     .populate('rankRequirements.rankRef', 'name code color');
 
@@ -664,7 +685,7 @@ const updateDuty = asyncHandler(async (req, res) => {
         recipientId: officer.userRef,
         title: 'New Duty Assigned',
         body: `You have been assigned to duty: ${duty.dutyName} at ${duty.locationName}`,
-        type: 'duty_assigned', relatedDuty: duty._id, sendPush: false,
+        type: 'duty_assigned', relatedDuty: duty._id,
       });
     }
   }
@@ -676,7 +697,25 @@ const updateDuty = asyncHandler(async (req, res) => {
         recipientId: officer.userRef,
         title: 'Removed from Duty',
         body: `You have been removed from duty: ${duty.dutyName} — the operator reduced the required officer count.`,
-        type: 'duty_updated', relatedDuty: duty._id, sendPush: false,
+        type: 'duty_updated', relatedDuty: duty._id,
+      });
+    }
+  }
+
+  // Notify currently-assigned officers (still on the duty, not rejected/
+  // removed/replaced) about general duty field changes — e.g. timing,
+  // location, priority, description. Rank-count-driven add/remove above are
+  // reported separately with their own more specific messages.
+  if (changes) {
+    const stillOnDuty = updated.assignedOfficers.filter(
+      (ao) => ['assigned', 'accepted'].includes(ao.status) && ao.officerRef?.userRef
+    );
+    for (const ao of stillOnDuty) {
+      await createNotification({
+        recipientId: ao.officerRef.userRef,
+        title: 'Duty Updated',
+        body: `Duty "${duty.dutyName}" was updated by the operator. Changed: ${changes}`,
+        type: 'duty_updated', relatedDuty: duty._id,
       });
     }
   }
@@ -722,7 +761,7 @@ const deleteDuty = asyncHandler(async (req, res) => {
 // @route  PATCH /api/operator/duties/:dutyId/cancel
 const cancelDuty = asyncHandler(async (req, res) => {
   const duty = await Duty.findOne({ _id: req.params.dutyId, operatorRef: req.user._id })
-    .populate('assignedOfficers.officerRef', 'name phone')
+    .populate('assignedOfficers.officerRef', 'name phone userRef')
     .populate('assignedOfficers.rankRef', 'name');
   if (!duty) return errorResponse(res, 404, 'Duty not found');
   if (duty.status === 'cancelled') return errorResponse(res, 400, 'Already cancelled');
@@ -734,10 +773,21 @@ const cancelDuty = asyncHandler(async (req, res) => {
     $push: { timeline: { action: 'DUTY_CANCELLED', performedBy: req.user._id, note: reason || 'Cancelled by operator' } }
   });
 
-  // Notify all assigned officers
-  for (const ao of duty.assignedOfficers) {
-    if (ao.officerRef?.phone && ao.status !== 'rejected') {
+  // Notify only officers CURRENTLY assigned to this duty (status 'assigned'
+  // or 'accepted') — not officers who rejected it, nor officers who were
+  // swapped/replaced out and are no longer actually on the duty.
+  const currentlyAssigned = duty.assignedOfficers.filter((ao) => ['assigned', 'accepted'].includes(ao.status));
+  for (const ao of currentlyAssigned) {
+    if (ao.officerRef?.phone) {
       await notifyDutyCancelled(ao.officerRef.phone, ao.officerRef.name, duty.dutyName, reason);
+    }
+    if (ao.officerRef?.userRef) {
+      await createNotification({
+        recipientId: ao.officerRef.userRef,
+        title: 'Duty Cancelled',
+        body: `Duty "${duty.dutyName}" has been cancelled by the operator.${reason ? ` Reason: ${reason}` : ''}`,
+        type: 'duty_cancelled', relatedDuty: duty._id,
+      });
     }
   }
 
@@ -809,7 +859,7 @@ const replaceOfficer = asyncHandler(async (req, res) => {
       recipientId: officerUser._id,
       title: 'New Duty Assigned',
       body: `You have been assigned to duty: ${duty.dutyName}`,
-      type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
+      type: 'duty_assigned', relatedDuty: duty._id
     });
   }
 
@@ -890,7 +940,7 @@ const manualReplaceOfficer = asyncHandler(async (req, res) => {
       recipientId: officerUser._id,
       title: 'New Duty Assigned',
       body: `You have been assigned to duty: ${duty.dutyName}`,
-      type: 'duty_assigned', relatedDuty: duty._id, sendPush: false
+      type: 'duty_assigned', relatedDuty: duty._id
     });
   }
 
@@ -964,9 +1014,254 @@ const getRankAvailability = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Rank availability fetched', { ranks: result });
 });
 
+// ─── BULK DUTY CREATION VIA EXCEL ────────────────────────────────────────────
+// One row = one officer assigned to a duty. Rows that share the same
+// `dutyGroupId` value belong to the same duty (so a duty needing 5 officers
+// is 5 rows). Duty-level columns (name, location, dates, priority, etc.)
+// only need to be filled on one row per group — the first non-empty value
+// seen for each field across the group is used — but repeating them on
+// every row is fine too and is what the downloadable template does, since
+// that's the easiest way for someone to build the sheet in Excel.
+//
+// @desc   Bulk create duties (with officer assignments) via Excel
+// @route  POST /api/operator/duties/bulk-upload
+const bulkCreateDuties = asyncHandler(async (req, res) => {
+  if (!req.file) return errorResponse(res, 400, 'Excel file required');
+
+  const isSpecial = req.user.role === 'operator_special';
+  const admin = await User.findById(req.user.adminRef);
+
+  const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rawRows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+
+  if (rawRows.length === 0) return errorResponse(res, 400, 'Excel file is empty');
+
+  // Normalize header casing/spacing exactly like the officer bulk upload,
+  // so "Duty Group Id", "dutygroupid", "DutyGroupID" etc. all map correctly.
+  const FIELD_ALIASES = {
+    dutygroupid: 'dutyGroupId',
+    dutyname: 'dutyName',
+    locationname: 'locationName',
+    lat: 'lat', lng: 'lng',
+    startdate: 'startDate', enddate: 'endDate',
+    priority: 'priority',
+    dutytype: 'dutyType',
+    description: 'description',
+    vehiclenumber: 'vehicleNumber',
+    phonenumbers: 'phoneNumbers',
+    sourcelat: 'sourceLat', sourcelng: 'sourceLng',
+    destlat: 'destLat', destlng: 'destLng',
+    officerbadgenumber: 'officerBadgeNumber',
+    officeremail: 'officerEmail',
+  };
+
+  const normalizeRow = (row) => {
+    const normalized = {};
+    for (const key of Object.keys(row)) {
+      const cleanKey = key.trim().toLowerCase().replace(/[\s_-]/g, '');
+      const mappedKey = FIELD_ALIASES[cleanKey] || key;
+      normalized[mappedKey] = typeof row[key] === 'string' ? row[key].trim() : row[key];
+    }
+    return normalized;
+  };
+
+  const rows = rawRows.map(normalizeRow).filter(r => Object.values(r).some(v => v !== '' && v !== undefined));
+  if (rows.length === 0) return errorResponse(res, 400, 'Excel file has no usable rows');
+
+  // Group rows by dutyGroupId, preserving first-seen order so duties are
+  // created in the same order they appear in the sheet.
+  const groupOrder = [];
+  const groups = new Map();
+  for (const row of rows) {
+    const gid = String(row.dutyGroupId || '').trim();
+    if (!gid) continue; // rows without a group id are skipped, reported below
+    if (!groups.has(gid)) { groups.set(gid, []); groupOrder.push(gid); }
+    groups.get(gid).push(row);
+  }
+
+  const total = groupOrder.length;
+  const ungroupedCount = rows.length - Array.from(groups.values()).reduce((n, g) => n + g.length, 0);
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  const sendEvent = (event) => res.write(JSON.stringify(event) + '\n');
+
+  const results = { created: 0, failed: [], officersAssigned: 0, officersSkipped: [] };
+  sendEvent({ type: 'start', total, ungroupedRows: ungroupedCount });
+
+  // Track officers consumed across THIS whole upload so the same officer
+  // can't be double-booked onto two duties within the same file.
+  const consumedThisBatch = new Set();
+  const busyIds = await getBusyOfficerIds();
+
+  for (let i = 0; i < groupOrder.length; i++) {
+    const gid = groupOrder[i];
+    const groupRows = groups.get(gid);
+
+    try {
+      // Merge duty-level fields — first non-empty value across the group wins.
+      const merged = {};
+      for (const r of groupRows) {
+        for (const key of ['dutyName', 'locationName', 'lat', 'lng', 'startDate', 'endDate',
+          'priority', 'dutyType', 'description', 'vehicleNumber', 'phoneNumbers',
+          'sourceLat', 'sourceLng', 'destLat', 'destLng']) {
+          if ((merged[key] === undefined || merged[key] === '') && r[key] !== undefined && r[key] !== '') {
+            merged[key] = r[key];
+          }
+        }
+      }
+
+      const { dutyName, locationName, startDate, endDate, priority } = merged;
+      if (!dutyName || !locationName || !startDate || !endDate || !priority) {
+        results.failed.push({ dutyGroupId: gid, reason: 'Missing one of: dutyName, locationName, startDate, endDate, priority' });
+        sendEvent({ type: 'progress', processed: i + 1, total, created: results.created, failed: results.failed.length, lastGroup: gid });
+        continue;
+      }
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start) || isNaN(end) || start >= end) {
+        results.failed.push({ dutyGroupId: gid, reason: 'Invalid or out-of-order startDate/endDate' });
+        sendEvent({ type: 'progress', processed: i + 1, total, created: results.created, failed: results.failed.length, lastGroup: gid });
+        continue;
+      }
+
+      const dutyTypeValue = isSpecial && merged.dutyType ? String(merged.dutyType).toUpperCase() : undefined;
+      if (dutyTypeValue && !['VVIP', 'CITY-POINT', 'CRIMINAL', 'MOBILITY'].includes(dutyTypeValue)) {
+        results.failed.push({ dutyGroupId: gid, reason: `Invalid dutyType '${merged.dutyType}'` });
+        sendEvent({ type: 'progress', processed: i + 1, total, created: results.created, failed: results.failed.length, lastGroup: gid });
+        continue;
+      }
+      const isMobility = isSpecial && dutyTypeValue === 'MOBILITY';
+
+      let dutyLocation;
+      let sourceLocation = null;
+      let destinationLocation = null;
+      if (isMobility) {
+        if (!merged.sourceLat || !merged.sourceLng || !merged.destLat || !merged.destLng) {
+          results.failed.push({ dutyGroupId: gid, reason: 'MOBILITY duty requires sourceLat/sourceLng/destLat/destLng' });
+          sendEvent({ type: 'progress', processed: i + 1, total, created: results.created, failed: results.failed.length, lastGroup: gid });
+          continue;
+        }
+        sourceLocation = { lat: parseFloat(merged.sourceLat), lng: parseFloat(merged.sourceLng) };
+        destinationLocation = { lat: parseFloat(merged.destLat), lng: parseFloat(merged.destLng) };
+        dutyLocation = sourceLocation;
+      } else {
+        if (!merged.lat || !merged.lng) {
+          results.failed.push({ dutyGroupId: gid, reason: 'lat/lng are required (unless dutyType is MOBILITY)' });
+          sendEvent({ type: 'progress', processed: i + 1, total, created: results.created, failed: results.failed.length, lastGroup: gid });
+          continue;
+        }
+        dutyLocation = { lat: parseFloat(merged.lat), lng: parseFloat(merged.lng) };
+      }
+
+      const parsedPhones = merged.phoneNumbers
+        ? String(merged.phoneNumbers).split(',').map(p => p.trim()).filter(Boolean)
+        : [];
+
+      // Resolve every officer row in this group
+      const assignedOfficers = [];
+      const rankCounts = new Map();
+      for (const r of groupRows) {
+        const identifier = r.officerBadgeNumber || r.officerEmail;
+        if (!identifier) continue; // duty-level-only row with no officer — allowed, just no assignment
+
+        const officerQuery = { adminRef: req.user.adminRef, status: 'active' };
+        if (r.officerBadgeNumber) officerQuery.badgeNumber = String(r.officerBadgeNumber);
+        else officerQuery.email = String(r.officerEmail).toLowerCase();
+
+        const officer = await Officer.findOne(officerQuery);
+        if (!officer) {
+          results.officersSkipped.push({ dutyGroupId: gid, identifier, reason: 'Officer not found or inactive' });
+          continue;
+        }
+        const officerId = officer._id.toString();
+        if (consumedThisBatch.has(officerId) || busyIds.has(officerId)) {
+          results.officersSkipped.push({ dutyGroupId: gid, identifier, name: officer.name, reason: 'Officer already assigned elsewhere' });
+          continue;
+        }
+
+        assignedOfficers.push({ officerRef: officer._id, rankRef: officer.rankRef, status: 'accepted', assignedBy: req.user._id });
+        consumedThisBatch.add(officerId);
+        rankCounts.set(officer.rankRef.toString(), (rankCounts.get(officer.rankRef.toString()) || 0) + 1);
+        results.officersAssigned++;
+      }
+
+      const rankRequirements = Array.from(rankCounts.entries()).map(([rankRef, count]) => ({
+        rankRef, count, assignmentType: 'manual',
+      }));
+
+      const duty = await Duty.create({
+        dutyName, locationName,
+        location: dutyLocation,
+        startDate: start, endDate: end,
+        priority: parseInt(priority),
+        ...(dutyTypeValue ? { dutyType: dutyTypeValue } : {}),
+        ...(sourceLocation ? { sourceLocation } : {}),
+        ...(destinationLocation ? { destinationLocation } : {}),
+        description: merged.description || undefined,
+        phoneNumbers: parsedPhones,
+        vehicleNumber: merged.vehicleNumber || null,
+        rankRequirements,
+        assignedOfficers,
+        operatorRef: req.user._id,
+        adminRef: req.user.adminRef,
+        superadminRef: admin.superadminRef,
+        status: 'draft',
+        timeline: [{ action: 'DUTY_CREATED', performedBy: req.user._id, note: 'Duty created via bulk Excel upload (draft)' }],
+      });
+
+      // Notify assigned officers — same channels as single duty creation.
+      const populated = await Duty.findById(duty._id)
+        .populate('assignedOfficers.officerRef', 'name phone userRef')
+        .populate('assignedOfficers.rankRef', 'name');
+      for (const ao of populated.assignedOfficers) {
+        if (ao.officerRef?.phone) {
+          await notifyDutyAssigned(ao.officerRef.phone, ao.officerRef.name, dutyName, locationName, start, end);
+        }
+        if (ao.officerRef?.userRef) {
+          await createNotification({
+            recipientId: ao.officerRef.userRef,
+            title: 'New Duty Assigned',
+            body: `You have been assigned to duty: ${dutyName} at ${locationName}`,
+            type: 'duty_assigned', relatedDuty: duty._id,
+          });
+        }
+      }
+      if (parsedPhones.length > 0) {
+        const officersSummary = buildOfficersSummary(populated.assignedOfficers);
+        for (const num of parsedPhones) {
+          await notifyDutyInfoToNumber(num, dutyName, locationName, start, end,
+            dutyTypeValue || `Priority ${priority}`, merged.vehicleNumber, officersSummary);
+        }
+      }
+
+      results.created++;
+    } catch (err) {
+      results.failed.push({ dutyGroupId: gid, reason: err.message });
+    }
+
+    sendEvent({
+      type: 'progress',
+      processed: i + 1,
+      total,
+      percent: Math.round(((i + 1) / total) * 100),
+      created: results.created,
+      failed: results.failed.length,
+      officersAssigned: results.officersAssigned,
+      lastGroup: gid,
+    });
+  }
+
+  sendEvent({ type: 'done', result: results });
+  res.end();
+});
+
 module.exports = {
   getOfficers, addOfficer, updateOfficer, deleteOfficer,
   createDuty, getDuties, getDutyById, updateDuty, cancelDuty, deleteDuty,
   replaceOfficer, manualReplaceOfficer, getRankAvailability, getAvailableOfficersByRank,
-  getDutiesForMap,
+  getDutiesForMap, bulkCreateDuties,
 };
