@@ -653,14 +653,39 @@ const updateDuty = asyncHandler(async (req, res) => {
             .map(a => a.officerRef.toString()),
           ...busyIds,
         ]);
-        const available = await Officer.find({
-          adminRef: req.user.adminRef,
-          rankRef,
-          status: 'active',
-          _id: { $nin: Array.from(excludeIds) },
-        }).select('_id name phone userRef').limit(need);
 
-        for (const officer of available) {
+        // Manual mode: operator hand-picked the specific officers to fill the
+        // new slots (via the officer picker on the frontend) instead of letting
+        // the system auto-select at random. Falls back to 'auto' behavior
+        // whenever assignmentType isn't explicitly 'manual'.
+        const isManual = req_.assignmentType === 'manual';
+        let selected = [];
+
+        if (isManual) {
+          const requestedIds = Array.isArray(req_.manualOfficerIds) ? req_.manualOfficerIds.slice(0, need) : [];
+          if (requestedIds.length > 0) {
+            const candidates = await Officer.find({
+              _id: { $in: requestedIds },
+              adminRef: req.user.adminRef,
+              rankRef,
+              status: 'active',
+              _id: { $nin: Array.from(excludeIds) },
+            }).select('_id name phone userRef');
+            // Preserve the operator's chosen order rather than Mongo's default
+            const byId = new Map(candidates.map(o => [o._id.toString(), o]));
+            selected = requestedIds.map(id => byId.get(id.toString())).filter(Boolean);
+          }
+        } else {
+          const available = await Officer.find({
+            adminRef: req.user.adminRef,
+            rankRef,
+            status: 'active',
+            _id: { $nin: Array.from(excludeIds) },
+          }).select('_id name phone userRef').limit(need);
+          selected = available;
+        }
+
+        for (const officer of selected) {
           duty.assignedOfficers.push({
             officerRef: officer._id,
             rankRef,
@@ -668,13 +693,16 @@ const updateDuty = asyncHandler(async (req, res) => {
             assignedBy: req.user._id,
           });
           newlyAssignedForNotify.push(officer);
+          excludeIds.add(officer._id.toString()); // don't double-pick within this same request
         }
-        if (available.length < need) {
+        if (selected.length < need) {
           const rank = await Rank.findById(rankRef).select('name');
           timelineEntries.push({
             action: 'RANK_REQUIREMENT_INCREASED',
             performedBy: req.user._id,
-            note: `${rank?.name || 'Rank'} increased to ${targetCount}, but only ${available.length}/${need} additional officer(s) were available`,
+            note: isManual
+              ? `${rank?.name || 'Rank'} increased to ${targetCount}, but only ${selected.length}/${need} of the manually selected officer(s) were valid/available`
+              : `${rank?.name || 'Rank'} increased to ${targetCount}, but only ${selected.length}/${need} additional officer(s) were available`,
           });
         }
       } else if (targetCount < currentCount) {
@@ -692,8 +720,12 @@ const updateDuty = asyncHandler(async (req, res) => {
 
       // Sync the requirement's target count on the duty record itself
       const existingReqEntry = duty.rankRequirements.find(rr => rr.rankRef.toString() === rankRef);
-      if (existingReqEntry) existingReqEntry.count = targetCount;
-      else duty.rankRequirements.push({ rankRef, count: targetCount, assignmentType: 'auto' });
+      if (existingReqEntry) {
+        existingReqEntry.count = targetCount;
+        existingReqEntry.assignmentType = req_.assignmentType === 'manual' ? 'manual' : 'auto';
+      } else {
+        duty.rankRequirements.push({ rankRef, count: targetCount, assignmentType: req_.assignmentType === 'manual' ? 'manual' : 'auto' });
+      }
     }
 
     timelineEntries.push({ action: 'RANK_REQUIREMENTS_UPDATED', performedBy: req.user._id, note: 'Rank requirements adjusted' });
