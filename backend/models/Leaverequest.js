@@ -98,6 +98,11 @@ const leaveRequestSchema = new mongoose.Schema({
   // balance (only true for approved casual/earned leave).
   balanceDeducted: { type: Boolean, default: false },
 
+  // Set when this request was force-routed to the Superadmin (submitted) or
+  // auto-cancelled (previously approved) because of an active Emergency
+  // Lockdown covering its dates — see utils/emergencyEngine.js.
+  emergencyPeriodRef: { type: mongoose.Schema.Types.ObjectId, ref: 'EmergencyPeriod', default: null, index: true },
+
   timeline: [{
     action: String,
     performedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
