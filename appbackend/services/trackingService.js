@@ -41,9 +41,25 @@ async function appendPoints({ attendanceId, dutyId, officerUserId, date, points 
     ? { lat: existing.points[0].lat, lng: existing.points[0].lng, recordedAt: existing.points[0].recordedAt }
     : null;
 
-  const cleaned = await cleanPoints(points, previousLast);
+  // GUARANTEE the stored array stays in strict chronological order, no
+  // matter what order batches physically arrive at the server (network
+  // retries/delays can and do reorder requests). Without this, an
+  // out-of-order batch gets appended after a chronologically-later one
+  // already in the array — each batch is internally sorted, but the full
+  // array never is — and the route polyline zigzags between the two
+  // batches when drawn. A point older than what's already stored is
+  // simply dropped; losing one late point is far better than corrupting
+  // the whole route.
+  const points_ = previousLast
+    ? points.filter((p) => p && !Number.isNaN(new Date(p.recordedAt).getTime()) && new Date(p.recordedAt) > new Date(previousLast.recordedAt))
+    : points;
+
+  const cleaned = await cleanPoints(points_, previousLast);
   if (cleaned.length === 0) {
-    return { saved: 0, skipped: points.length, totalDistanceMeters: existing?.totalDistanceMeters || 0 };
+    return {
+       saved: 0, 
+       skipped: points.length - cleaned.length,
+        totalDistanceMeters: existing?.totalDistanceMeters || 0 };
   }
 
   cleaned.sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
