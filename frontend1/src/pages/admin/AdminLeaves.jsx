@@ -1,25 +1,42 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle, XCircle, ShieldAlert, Lock, Unlock, CalendarOff, Plus } from 'lucide-react';
+import { CheckCircle, XCircle, ShieldAlert, Lock, Unlock, CalendarOff, Plus, Eye, Siren } from 'lucide-react';
 import api from '../../api/axios';
-import { apiError, formatDate, getStatusColor } from '../../utils/helpers';
+import { apiError, formatDate, getStatusColor, getLeaveRowClass, LEAVE_STATUS_LEGEND } from '../../utils/helpers';
 import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
+import LeaveDetailModal from '../../components/leave/LeaveDetailModal';
+import StatusLegend from '../../components/common/StatusLegend';
+import { LEAVE_TYPE_LABEL } from '../../utils/leaveConstants';
 import toast from 'react-hot-toast';
-
-const LEAVE_TYPE_LABEL = {
-  casual: 'Casual Leave', earned: 'Earned Leave', emergency: 'Emergency Leave',
-  medical: 'Medical Leave', maternity: 'Maternity Leave', childcare: 'Child Care Leave',
-};
 
 export default function AdminLeaves() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [approvalsPage, setApprovalsPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [decideTarget, setDecideTarget] = useState(null);
   const [decisionNote, setDecisionNote] = useState('');
   const [applyOpen, setApplyOpen] = useState(false);
   const [form, setForm] = useState({ leaveType: 'casual', fromDate: '', toDate: '', remark: '' });
+  // Row-click "view details" modal — separate from the quick decide modal above
+  // so both flows can coexist without interfering with each other.
+  const [viewTarget, setViewTarget] = useState(null); // { leave, actionable }
+  const [viewNote, setViewNote] = useState('');
+
+  // Shares the ['emergency-active'] cache with the global EmergencyBanner —
+  // used here only to warn on the "apply my own leave" form.
+  const { data: emergencyData } = useQuery({
+    queryKey: ['emergency-active'],
+    queryFn: () => api.get('/emergency/active').then(r => r.data.data),
+    refetchInterval: 60000,
+  });
+  const activeEmergency = emergencyData?.emergency;
+  const overlapsEmergency = !!(
+    activeEmergency && form.fromDate && form.toDate &&
+    form.fromDate <= activeEmergency.endDate.slice(0, 10) &&
+    form.toDate >= activeEmergency.startDate.slice(0, 10)
+  );
 
   const { data: locks } = useQuery({
     queryKey: ['leave-locks'],
@@ -28,8 +45,8 @@ export default function AdminLeaves() {
   });
 
   const { data: approvals } = useQuery({
-    queryKey: ['admin-leave-approvals'],
-    queryFn: () => api.get('/admin/leaves/approvals?limit=20').then(r => r.data.data),
+    queryKey: ['admin-leave-approvals', approvalsPage],
+    queryFn: () => api.get(`/admin/leaves/approvals?limit=10&page=${approvalsPage}`).then(r => r.data.data),
   });
 
   const { data: allLeaves, isLoading } = useQuery({
@@ -44,9 +61,15 @@ export default function AdminLeaves() {
       qc.invalidateQueries({ queryKey: ['admin-leave-approvals'] });
       qc.invalidateQueries({ queryKey: ['admin-all-leaves'] });
       setDecideTarget(null); setDecisionNote('');
+      setViewTarget(null); setViewNote('');
     },
     onError: (err) => toast.error(apiError(err)),
   });
+
+  // Opens the full detail modal for a row. `actionable` lets the modal show
+  // embedded Approve/Reject buttons (only used for the "pending your
+  // approval" queue — history rows are informational only).
+  const openView = (leave, actionable = false) => setViewTarget({ leave, actionable });
 
   const unlockMut = useMutation({
     mutationFn: (id) => api.patch(`/admin/leaves/locks/${id}/unlock`),
@@ -108,16 +131,17 @@ export default function AdminLeaves() {
               {approvals?.data?.length === 0 ? (
                 <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-sm">Nothing pending</td></tr>
               ) : approvals?.data?.map(lv => (
-                <tr key={lv._id} className="table-row">
+                <tr key={lv._id} onClick={() => openView(lv, true)} className="table-row cursor-pointer">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                     {lv.officerRef?.name || lv.applicantRef?.name}
                     <span className="text-xs text-gray-400 ml-1">({lv.applicantRole === 'admin' ? 'Admin' : lv.rankTierAtRequest === 'junior' ? 'Officer' : 'SI/Insp/DSP'})</span>
+                    {lv.document?.url && <Eye className="inline-block w-3 h-3 text-signal2-500 ml-1.5 align-text-top" aria-label="Has attachment" />}
                   </td>
                   <td className="px-4 py-3 text-gray-500">{LEAVE_TYPE_LABEL[lv.leaveType]}</td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(lv.fromDate)} – {formatDate(lv.toDate)}</td>
                   <td className="px-4 py-3 text-gray-500">{lv.totalDays}</td>
                   <td className="px-4 py-3 text-gray-500 max-w-[160px] truncate" title={lv.routingNote}>{lv.routingNote || '—'}</td>
-                  <td className="px-4 py-3 flex gap-2">
+                  <td className="px-4 py-3 flex gap-2" onClick={e => e.stopPropagation()}>
                     <button onClick={() => setDecideTarget({ leave: lv, decision: 'approve' })} className="btn-primary text-xs py-1 px-2"><CheckCircle className="w-3 h-3" /> Approve</button>
                     <button onClick={() => setDecideTarget({ leave: lv, decision: 'reject' })} className="btn-danger text-xs py-1 px-2"><XCircle className="w-3 h-3" /> Reject</button>
                   </td>
@@ -126,6 +150,7 @@ export default function AdminLeaves() {
             </tbody>
           </table>
         </div>
+        {approvals?.pagination && <Pagination pagination={approvals.pagination} onPageChange={setApprovalsPage} />}
       </div>
 
       {/* All leaves in hierarchy */}
@@ -140,6 +165,7 @@ export default function AdminLeaves() {
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
+        <StatusLegend items={LEAVE_STATUS_LEGEND} />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -153,8 +179,11 @@ export default function AdminLeaves() {
               ) : allLeaves?.data?.length === 0 ? (
                 <tr><td colSpan={6} className="py-10 text-center text-gray-400 text-sm"><CalendarOff className="w-8 h-8 mx-auto mb-2 opacity-30" /> No leave requests</td></tr>
               ) : allLeaves?.data?.map(lv => (
-                <tr key={lv._id} className="table-row">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{lv.officerRef?.name || lv.applicantRef?.name}</td>
+                <tr key={lv._id} onClick={() => openView(lv, false)} className={`table-row cursor-pointer ${getLeaveRowClass(lv.status)}`}>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                    {lv.officerRef?.name || lv.applicantRef?.name}
+                    {lv.document?.url && <Eye className="inline-block w-3 h-3 text-signal2-500 ml-1.5 align-text-top" aria-label="Has attachment" />}
+                  </td>
                   <td className="px-4 py-3 text-gray-500">{LEAVE_TYPE_LABEL[lv.leaveType]}</td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(lv.fromDate)} – {formatDate(lv.toDate)}</td>
                   <td className="px-4 py-3 text-gray-500">{lv.totalDays}</td>
@@ -209,12 +238,32 @@ export default function AdminLeaves() {
             <div><label className="form-label">To *</label><input type="date" className="input-field" value={form.toDate} onChange={e => setForm(p => ({ ...p, toDate: e.target.value }))} required /></div>
           </div>
           <div><label className="form-label">Remark (optional)</label><textarea className="input-field" rows={2} value={form.remark} onChange={e => setForm(p => ({ ...p, remark: e.target.value }))} /></div>
+          {overlapsEmergency && (
+            <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-2.5">
+              <Siren className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              These dates fall within an active Emergency Lockdown ("{activeEmergency.reason}"). This request will be routed
+              directly to the Superadmin.
+            </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setApplyOpen(false)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={applyMut.isPending} className="btn-primary flex-1">{applyMut.isPending ? 'Submitting...' : 'Submit Request'}</button>
           </div>
         </form>
       </Modal>
+
+      {/* Full detail view — opened by clicking any row in either table above */}
+      <LeaveDetailModal
+        isOpen={!!viewTarget}
+        onClose={() => { setViewTarget(null); setViewNote(''); }}
+        leave={viewTarget?.leave}
+        actionable={viewTarget?.actionable}
+        decisionNote={viewNote}
+        onDecisionNoteChange={setViewNote}
+        decisionPending={decideMut.isPending}
+        onApprove={() => decideMut.mutate({ id: viewTarget.leave._id, decision: 'approve', note: viewNote })}
+        onReject={() => decideMut.mutate({ id: viewTarget.leave._id, decision: 'reject', note: viewNote })}
+      />
     </div>
   );
 }

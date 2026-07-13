@@ -15,8 +15,24 @@ const TYPE_ICONS = {
   officer_replaced:  '🔄',
   account_suspended: '🔒',
   account_activated: '✅',
+  attendance_checkin:'🕒',
+  swap_requested:    '🔁',
+  swap_accepted:     '✅',
+  swap_rejected:     '🚫',
+  swap_cancelled:    '❌',
+  swap_executed:     '🔀',
+  leave_requested:   '📝',
+  leave_approved:    '✅',
+  leave_rejected:    '🚫',
+  leave_cancelled:   '❌',
+  leave_conflict:    '⚠️',
+  leave_threshold_locked: '🔒',
+  emergency_declared: '🚨',
+  emergency_ended:    '✅',
   general:           '🔔',
 };
+
+const LEAVE_TYPES = new Set(['leave_requested', 'leave_approved', 'leave_rejected', 'leave_cancelled', 'leave_conflict', 'leave_threshold_locked']);
 
 function useNotifPath() {
   const { user } = useAuth();
@@ -29,6 +45,19 @@ function useNotifPath() {
   return '/';
 }
 
+// Base path for this user's leave module — used so a leave-related
+// notification can jump straight to "अवकाश प्रबंधन" instead of just the
+// generic notifications list.
+function useLeavePath() {
+  const { user } = useAuth();
+  if (!user) return null;
+  if (user.role === 'officer') return '/officer/leave';
+  if (user.role?.startsWith('operator')) return '/operator/leave';
+  if (user.role === 'admin') return '/admin/leave';
+  if (user.role === 'superadmin') return '/superadmin/leave';
+  return null;
+}
+
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
@@ -37,6 +66,7 @@ export default function NotificationBell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const notifPath = useNotifPath();
+  const leavePath = useLeavePath();
 
   const { data } = useQuery({
     queryKey: ['notifications'],
@@ -58,6 +88,16 @@ export default function NotificationBell() {
     mutationFn: (id) => api.delete(`/notifications/${id}`),
     onSuccess: () => qc.invalidateQueries(['notifications']),
   });
+
+  // Clicking a leave-related notification jumps straight to the leave page
+  // (and marks it read on the way) instead of only being readable/deletable.
+  const handleNotifClick = (n) => {
+    if (!n.isRead) markRead.mutate(n._id);
+    if (LEAVE_TYPES.has(n.type) && leavePath) {
+      setOpen(false);
+      navigate(leavePath);
+    }
+  };
 
   const openDropdown = useCallback(() => {
     if (btnRef.current) {
@@ -133,10 +173,13 @@ export default function NotificationBell() {
             कोई सूचना नहीं
           </div>
         ) : (
-          notifications.map(n => (
+          notifications.map(n => {
+            const isLeaveNotif = LEAVE_TYPES.has(n.type) && !!leavePath;
+            return (
             <div
               key={n._id}
-              className={`flex gap-3 px-4 py-3 group hover:bg-ink-50 dark:hover:bg-white/[0.03] transition-colors ${
+              onClick={() => handleNotifClick(n)}
+              className={`flex gap-3 px-4 py-3 group hover:bg-ink-50 dark:hover:bg-white/[0.03] transition-colors ${isLeaveNotif ? 'cursor-pointer' : ''} ${
                 !n.isRead ? 'bg-signal2-50/60 dark:bg-signal2-400/[0.06]' : ''
               }`}
             >
@@ -146,7 +189,7 @@ export default function NotificationBell() {
                 <p className="text-xs text-ink-500 dark:text-ink-400 mt-0.5 line-clamp-2">{n.body}</p>
                 <p className="text-xs text-ink-400 mt-1 font-mono">{timeAgo(n.createdAt)}</p>
               </div>
-              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={e => e.stopPropagation()}>
                 {!n.isRead && (
                   <button
                     onClick={() => markRead.mutate(n._id)}
@@ -165,7 +208,8 @@ export default function NotificationBell() {
                 </button>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 

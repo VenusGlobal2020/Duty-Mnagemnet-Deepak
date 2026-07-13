@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, CalendarOff, Clock, CheckCircle, XCircle, FileText, Upload,
-  ShieldCheck, Users, Building2, X, AlertTriangle,
+  ShieldCheck, Users, Building2, X, AlertTriangle, Eye, Siren,
 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
-import { apiError, formatDate, getStatusColor } from '../../utils/helpers';
+import { apiError, formatDate, getStatusColor, getLeaveRowClass, LEAVE_STATUS_LEGEND } from '../../utils/helpers';
 import Modal from '../../components/common/Modal';
 import Pagination from '../../components/common/Pagination';
+import LeaveDetailModal from '../../components/leave/LeaveDetailModal';
+import StatusLegend from '../../components/common/StatusLegend';
+import { LEAVE_TYPE_LABEL, APPROVER_LABEL } from '../../utils/leaveConstants';
 import toast from 'react-hot-toast';
 
 const LEAVE_TYPES = [
@@ -19,8 +22,6 @@ const LEAVE_TYPES = [
   { value: 'maternity', label: 'Maternity Leave', category: 'special' },
   { value: 'childcare', label: 'Child Care Leave', category: 'special' },
 ];
-const LEAVE_TYPE_LABEL = Object.fromEntries(LEAVE_TYPES.map(t => [t.value, t.label]));
-const APPROVER_LABEL = { inspector: 'Inspector (Thana)', dsp: 'DSP (Zone)', admin: 'Admin', superadmin: 'Superadmin' };
 
 const EMPTY_FORM = { leaveType: 'casual', fromDate: '', toDate: '', remark: '' };
 
@@ -31,8 +32,13 @@ export default function OfficerLeaves() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [document, setDocument] = useState(null);
   const [page, setPage] = useState(1);
+  const [approvalsPage, setApprovalsPage] = useState(1);
+  const [overviewPage, setOverviewPage] = useState(1);
   const [decideTarget, setDecideTarget] = useState(null); // { leave, decision }
   const [decisionNote, setDecisionNote] = useState('');
+  // Row-click "view details" modal — shared across all three tables below.
+  const [viewTarget, setViewTarget] = useState(null); // { leave, actionable }
+  const [viewNote, setViewNote] = useState('');
 
   const isInspector = user?.rankRef?.leaveApprovalRole === 'inspector';
   const isDSP = user?.rankRef?.leaveApprovalRole === 'dsp';
@@ -48,15 +54,31 @@ export default function OfficerLeaves() {
     queryFn: () => api.get(`/officer/leaves?page=${page}&limit=10`).then(r => r.data.data),
   });
 
+  // Shares the ['emergency-active'] cache with the global EmergencyBanner —
+  // used here only to warn on the apply form when selected dates overlap it.
+  const { data: emergencyData } = useQuery({
+    queryKey: ['emergency-active'],
+    queryFn: () => api.get('/emergency/active').then(r => r.data.data),
+    refetchInterval: 60000,
+  });
+  const activeEmergency = emergencyData?.emergency;
+  const overlapsEmergency = !!(
+    activeEmergency && form.fromDate && form.toDate &&
+    form.fromDate <= activeEmergency.endDate.slice(0, 10) &&
+    form.toDate >= activeEmergency.startDate.slice(0, 10)
+  );
+
   const { data: approvals } = useQuery({
-    queryKey: ['leave-approvals'],
-    queryFn: () => api.get('/officer/leaves/approvals?limit=20').then(r => r.data.data),
+    queryKey: ['leave-approvals', approvalsPage],
+    queryFn: () => api.get(`/officer/leaves/approvals?limit=10&page=${approvalsPage}`).then(r => r.data.data),
     enabled: isApprover,
   });
 
   const { data: overview } = useQuery({
-    queryKey: ['leave-overview', isInspector ? 'thana' : 'zone'],
-    queryFn: () => api.get(isInspector ? '/officer/leaves/thana-overview?limit=20' : '/officer/leaves/zone-overview?limit=20').then(r => r.data.data),
+    queryKey: ['leave-overview', isInspector ? 'thana' : 'zone', overviewPage],
+    queryFn: () => api.get(
+      (isInspector ? '/officer/leaves/thana-overview' : '/officer/leaves/zone-overview') + `?limit=10&page=${overviewPage}`
+    ).then(r => r.data.data),
     enabled: isApprover,
   });
 
@@ -73,7 +95,12 @@ export default function OfficerLeaves() {
 
   const cancelMut = useMutation({
     mutationFn: (id) => api.patch(`/officer/leaves/${id}/cancel`),
-    onSuccess: () => { toast.success('Leave cancelled'); qc.invalidateQueries({ queryKey: ['my-leaves'] }); qc.invalidateQueries({ queryKey: ['leave-balance'] }); },
+    onSuccess: () => {
+      toast.success('Leave cancelled');
+      qc.invalidateQueries({ queryKey: ['my-leaves'] });
+      qc.invalidateQueries({ queryKey: ['leave-balance'] });
+      setViewTarget(null); setViewNote('');
+    },
     onError: (err) => toast.error(apiError(err)),
   });
 
@@ -84,9 +111,14 @@ export default function OfficerLeaves() {
       qc.invalidateQueries({ queryKey: ['leave-approvals'] });
       qc.invalidateQueries({ queryKey: ['leave-overview'] });
       setDecideTarget(null); setDecisionNote('');
+      setViewTarget(null); setViewNote('');
     },
     onError: (err) => toast.error(apiError(err)),
   });
+
+  // Opens the shared detail modal. `source` determines which actions the
+  // modal shows: 'mine' -> Cancel, 'approval' -> Approve/Reject, 'overview' -> read-only.
+  const openView = (leave, source = 'overview') => setViewTarget({ leave, source });
 
   const handleApply = (e) => {
     e.preventDefault();
@@ -128,6 +160,7 @@ export default function OfficerLeaves() {
       {/* My leave requests */}
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 font-semibold text-gray-800 dark:text-white text-sm">My Leave Requests</div>
+        <StatusLegend items={LEAVE_STATUS_LEGEND} />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -145,13 +178,16 @@ export default function OfficerLeaves() {
                   <CalendarOff className="w-8 h-8 mx-auto mb-2 opacity-30" /> No leave requests yet
                 </td></tr>
               ) : myLeaves?.data?.map(lv => (
-                <tr key={lv._id} className="table-row">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{LEAVE_TYPE_LABEL[lv.leaveType]}</td>
+                <tr key={lv._id} onClick={() => openView(lv, "mine")} className={`table-row cursor-pointer ${getLeaveRowClass(lv.status)}`}>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                    {LEAVE_TYPE_LABEL[lv.leaveType]}
+                    {lv.document?.url && <Eye className="inline-block w-3 h-3 text-signal2-500 ml-1.5 align-text-top" aria-label="Has attachment" />}
+                  </td>
                   <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(lv.fromDate)} – {formatDate(lv.toDate)}</td>
                   <td className="px-4 py-3 text-gray-500">{lv.totalDays}</td>
                   <td className="px-4 py-3 text-gray-500">{APPROVER_LABEL[lv.approverLevel]}</td>
                   <td className="px-4 py-3"><span className={`badge ${getStatusColor(lv.status)}`}>{lv.status}</span></td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     {['pending', 'approved'].includes(lv.status) && (
                       <button onClick={() => cancelMut.mutate(lv._id)} className="text-xs text-red-500 hover:underline">Cancel</button>
                     )}
@@ -183,16 +219,17 @@ export default function OfficerLeaves() {
                 {approvals?.data?.length === 0 ? (
                   <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-sm">Nothing pending</td></tr>
                 ) : approvals?.data?.map(lv => (
-                  <tr key={lv._id} className="table-row">
+                  <tr key={lv._id} onClick={() => openView(lv, "approval")} className="table-row cursor-pointer">
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                       {lv.officerRef?.name}
                       {lv.officerRef?.badgeNumber && <span className="text-xs text-gray-400 ml-1">#{lv.officerRef.badgeNumber}</span>}
+                      {lv.document?.url && <Eye className="inline-block w-3 h-3 text-signal2-500 ml-1.5 align-text-top" aria-label="Has attachment" />}
                     </td>
                     <td className="px-4 py-3 text-gray-500">{LEAVE_TYPE_LABEL[lv.leaveType]}</td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(lv.fromDate)} – {formatDate(lv.toDate)}</td>
                     <td className="px-4 py-3 text-gray-500">{lv.totalDays}</td>
                     <td className="px-4 py-3 text-gray-500 max-w-[160px] truncate" title={lv.remark}>{lv.remark || '—'}</td>
-                    <td className="px-4 py-3 flex gap-2">
+                    <td className="px-4 py-3 flex gap-2" onClick={e => e.stopPropagation()}>
                       <button onClick={() => setDecideTarget({ leave: lv, decision: 'approve' })} className="btn-primary text-xs py-1 px-2"><CheckCircle className="w-3 h-3" /> Approve</button>
                       <button onClick={() => setDecideTarget({ leave: lv, decision: 'reject' })} className="btn-danger text-xs py-1 px-2"><XCircle className="w-3 h-3" /> Reject</button>
                     </td>
@@ -201,6 +238,7 @@ export default function OfficerLeaves() {
               </tbody>
             </table>
           </div>
+          {approvals?.pagination && <Pagination pagination={approvals.pagination} onPageChange={setApprovalsPage} />}
         </div>
       )}
 
@@ -211,6 +249,7 @@ export default function OfficerLeaves() {
             {isInspector ? <Building2 className="w-4 h-4 text-primary-500" /> : <Users className="w-4 h-4 text-primary-500" />}
             {isInspector ? `Thana Leave Overview — ${overview.thana}` : `Zone Leave Overview — ${overview.zone}`}
           </div>
+          <StatusLegend items={LEAVE_STATUS_LEGEND} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -224,8 +263,11 @@ export default function OfficerLeaves() {
                 {overview.data?.length === 0 ? (
                   <tr><td colSpan={4} className="py-8 text-center text-gray-400 text-sm">No leave activity</td></tr>
                 ) : overview.data?.map(lv => (
-                  <tr key={lv._id} className="table-row">
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{lv.officerRef?.name}</td>
+                  <tr key={lv._id} onClick={() => openView(lv, "overview")} className={`table-row cursor-pointer ${getLeaveRowClass(lv.status)}`}>
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                      {lv.officerRef?.name}
+                      {lv.document?.url && <Eye className="inline-block w-3 h-3 text-signal2-500 ml-1.5 align-text-top" aria-label="Has attachment" />}
+                    </td>
                     <td className="px-4 py-3 text-gray-500">{LEAVE_TYPE_LABEL[lv.leaveType]}</td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(lv.fromDate)} – {formatDate(lv.toDate)}</td>
                     <td className="px-4 py-3"><span className={`badge ${getStatusColor(lv.status)}`}>{lv.status}</span></td>
@@ -234,6 +276,7 @@ export default function OfficerLeaves() {
               </tbody>
             </table>
           </div>
+          {overview.pagination && <Pagination pagination={overview.pagination} onPageChange={setOverviewPage} />}
           {isDSP && overview.balanceSummary && (
             <div className="p-4 border-t border-gray-100 dark:border-gray-800">
               <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Zone Balance Summary</p>
@@ -284,6 +327,13 @@ export default function OfficerLeaves() {
               Special leave requests go directly to the Superadmin for approval.
             </div>
           )}
+          {overlapsEmergency && (
+            <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-2.5">
+              <Siren className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              These dates fall within an active Emergency Lockdown ("{activeEmergency.reason}"). This request will be routed
+              directly to the Superadmin, not your usual approver.
+            </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setApplyOpen(false)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={applyMut.isPending} className="btn-primary flex-1">{applyMut.isPending ? 'Submitting...' : 'Submit Request'}</button>
@@ -316,6 +366,21 @@ export default function OfficerLeaves() {
           </div>
         )}
       </Modal>
+
+      {/* Full detail view — opened by clicking any row across all three tables above */}
+      <LeaveDetailModal
+        isOpen={!!viewTarget}
+        onClose={() => { setViewTarget(null); setViewNote(''); }}
+        leave={viewTarget?.leave}
+        actionable={viewTarget?.source === 'approval'}
+        decisionNote={viewNote}
+        onDecisionNoteChange={setViewNote}
+        decisionPending={decideMut.isPending}
+        onApprove={() => decideMut.mutate({ id: viewTarget.leave._id, decision: 'approve', note: viewNote })}
+        onReject={() => decideMut.mutate({ id: viewTarget.leave._id, decision: 'reject', note: viewNote })}
+        onCancel={viewTarget?.source === 'mine' ? () => cancelMut.mutate(viewTarget.leave._id) : undefined}
+        cancelPending={cancelMut.isPending}
+      />
     </div>
   );
 }
