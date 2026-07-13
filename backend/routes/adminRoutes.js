@@ -8,6 +8,8 @@ const {
   getDashboardStats,
   getDutyById,
   getDutiesForMap,
+  getAllOfficers,
+  getOfficerLocations,
 } = require('../controllers/adminController');
 const {
   requestLeave, getMyLeaves, cancelMyLeave,
@@ -24,6 +26,11 @@ router.put('/operators/:operatorId', updateOperator);
 router.get('/duties', getDuties);
 router.get('/duties/map', getDutiesForMap);
 router.get('/duties/:dutyId', getDutyById);  // ← NEW: admin can view duty detail with attendance
+
+// Read-only officer roster — officer records themselves are managed by
+// operators; admin can view + filter (thana/zone/rank/availability/status).
+router.get('/officers/locations', getOfficerLocations);
+router.get('/officers', getAllOfficers);
 
 // ─── Leave management ────────────────────────────────────────────────────────
 // Admin's own leave — always goes to their superadmin. No leave balance

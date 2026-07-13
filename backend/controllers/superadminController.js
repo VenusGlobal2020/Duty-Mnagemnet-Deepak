@@ -419,15 +419,22 @@ const bulkUploadOfficers = asyncHandler(async (req, res) => {
 // @desc   View all officers under this superadmin
 // @route  GET /api/superadmin/officers
 const getAllOfficers = asyncHandler(async (req, res) => {
-  const { adminId, page, limit, search } = req.query;
+  const { adminId, page, limit, search, rankId, availability, status } = req.query;
   const query = { superadminRef: req.user._id };
   if (adminId) query.adminRef = adminId;
-  if (search) query.name = { $regex: search, $options: "i" };
+  if (rankId) query.rankRef = rankId;
+  if (availability) query.dutyAvailability = availability; // available | on_leave | pending_return
+  if (status) query.status = status; // active | suspended | inactive
+  if (search) query.$or = [
+    { name: { $regex: search, $options: "i" } },
+    { badgeNumber: { $regex: search, $options: "i" } },
+  ];
 
   const result = await paginateQuery(Officer, query, page, limit, [
-    { path: "rankRef", select: "name code color priority" },
+    { path: "rankRef", select: "name code color priority leaveTier leaveApprovalRole" },
     { path: "adminRef", select: "name email" },
     { path: "userRef", select: "status lastLogin" },
+    { path: "currentLeaveRef", select: "leaveType fromDate toDate status remark" },
   ]);
   return successResponse(res, 200, "Officers fetched", result);
 });
@@ -441,13 +448,15 @@ const getOfficerLocations = asyncHandler(async (req, res) => {
     superadminRef: req.user._id,
     ...(adminId ? { adminRef: adminId } : {}),
   };
-  const [thanas, zones] = await Promise.all([
+  const [thanas, zones, ranks] = await Promise.all([
     Officer.distinct("thana", { ...match, thana: { $nin: [null, ""] } }),
     Officer.distinct("zone", { ...match, zone: { $nin: [null, ""] } }),
+    Rank.find({ isActive: true }).sort({ priority: 1 }).select("name code color"),
   ]);
   return successResponse(res, 200, "Locations fetched", {
     thanas: thanas.sort(),
     zones: zones.sort(),
+    ranks,
   });
 });
 
@@ -549,6 +558,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     totalAdmins,
     activeAdmins,
     totalOfficers,
+    officersOnLeave,
     totalDuties,
     activeDuties,
     completedDuties,
@@ -560,6 +570,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       status: "active",
     }),
     Officer.countDocuments({ superadminRef: superadminId }),
+    Officer.countDocuments({ superadminRef: superadminId, dutyAvailability: "on_leave" }),
     Duty.countDocuments({ superadminRef: superadminId }),
     Duty.countDocuments({ superadminRef: superadminId, status: "active" }),
     Duty.countDocuments({ superadminRef: superadminId, status: "completed" }),
@@ -569,6 +580,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     totalAdmins,
     activeAdmins,
     totalOfficers,
+    officersOnLeave,
     totalDuties,
     activeDuties,
     completedDuties,

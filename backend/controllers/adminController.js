@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const User = require('../models/User');
 const Officer = require('../models/Officer');
+const Rank = require('../models/Rank');
 const Duty = require('../models/Duty');
 const Attendance = require('../models/Attendance');
 const { successResponse, errorResponse, paginateQuery } = require('../utils/response');
@@ -130,9 +131,10 @@ const getDutiesForMap = asyncHandler(async (req, res) => {
 // @route  GET /api/admin/dashboard
 const getDashboardStats = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
-  const [operators, officers, totalDuties, draftDuties, activeDuties, completedDuties, cancelledDuties] = await Promise.all([
+  const [operators, officers, officersOnLeave, totalDuties, draftDuties, activeDuties, completedDuties, cancelledDuties] = await Promise.all([
     User.countDocuments({ adminRef: adminId, role: { $in: ['operator_special', 'operator_regular'] } }),
     Officer.countDocuments({ adminRef: adminId }),
+    Officer.countDocuments({ adminRef: adminId, dutyAvailability: 'on_leave' }),
     Duty.countDocuments({ adminRef: adminId }),
     Duty.countDocuments({ adminRef: adminId, status: 'draft' }),
     Duty.countDocuments({ adminRef: adminId, status: 'active' }),
@@ -140,7 +142,48 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     Duty.countDocuments({ adminRef: adminId, status: 'cancelled' }),
   ]);
 
-  return successResponse(res, 200, 'Stats', { operators, officers, totalDuties, draftDuties, activeDuties, completedDuties, cancelledDuties });
+  return successResponse(res, 200, 'Stats', { operators, officers, officersOnLeave, totalDuties, draftDuties, activeDuties, completedDuties, cancelledDuties });
+});
+
+// @desc   List officers under this admin, with filters — read-only view for
+//         the admin (officer records themselves are managed by operators).
+// @route  GET /api/admin/officers
+const getAllOfficers = asyncHandler(async (req, res) => {
+  const { page, limit, search, rankId, thana, zone, availability, status } = req.query;
+  const query = { adminRef: req.user._id };
+  if (rankId) query.rankRef = rankId;
+  if (thana) query.thana = thana;
+  if (zone) query.zone = zone;
+  if (availability) query.dutyAvailability = availability; // available | on_leave | pending_return
+  if (status) query.status = status; // active | suspended | inactive
+  if (search) query.$or = [
+    { name: { $regex: search, $options: 'i' } },
+    { badgeNumber: { $regex: search, $options: 'i' } },
+  ];
+
+  const result = await paginateQuery(Officer, query, page, limit, [
+    { path: 'rankRef', select: 'name code color priority leaveTier leaveApprovalRole' },
+    { path: 'userRef', select: 'status lastLogin' },
+    { path: 'currentLeaveRef', select: 'leaveType fromDate toDate status remark' },
+  ]);
+  return successResponse(res, 200, 'Officers fetched', result);
+});
+
+// @desc   Distinct thana/zone/rank values in use under this admin — powers
+//         the filter dropdowns on the officer list.
+// @route  GET /api/admin/officers/locations
+const getOfficerLocations = asyncHandler(async (req, res) => {
+  const match = { adminRef: req.user._id };
+  const [thanas, zones, ranks] = await Promise.all([
+    Officer.distinct('thana', { ...match, thana: { $nin: [null, ''] } }),
+    Officer.distinct('zone', { ...match, zone: { $nin: [null, ''] } }),
+    Rank.find({ isActive: true }).sort({ priority: 1 }).select('name code color'),
+  ]);
+  return successResponse(res, 200, 'Locations fetched', {
+    thanas: thanas.sort(),
+    zones: zones.sort(),
+    ranks,
+  });
 });
 
 // @desc   Get single duty detail with attendance (admin view)
@@ -182,4 +225,4 @@ const getDutyById = asyncHandler(async (req, res) => {
   return successResponse(res, 200, 'Duty fetched', { duty, attendanceMap, mapsLink });
 });
 
-module.exports = { createOperator, getOperators, updateOperator, getDuties, getDashboardStats, getDutyById, getDutiesForMap };
+module.exports = { createOperator, getOperators, updateOperator, getDuties, getDashboardStats, getDutyById, getDutiesForMap, getAllOfficers, getOfficerLocations };
