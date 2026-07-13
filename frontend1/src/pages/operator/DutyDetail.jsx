@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, RefreshCw, XCircle, FileText, MapPin, Clock, Phone,
   CheckCircle, Pencil, Users, Download, ExternalLink, Loader2,
   ClipboardCheck, AlertCircle, Lock, ArrowLeftRight, Check, X,
-  History, ChevronDown, ChevronUp, Plus, Minus, Trash2, Layers, Eye, EyeOff
+  History, ChevronDown, ChevronUp, Plus, Minus, Trash2, Layers, Eye, EyeOff, Search
 } from 'lucide-react';
 import api from '../../api/axios';
 import { apiError, formatDateTime, getStatusColor, getPriorityColor, getPriorityLabel, getDutyTypeColor } from '../../utils/helpers';
@@ -278,15 +278,100 @@ function SwapRequestsPanel({ dutyId, onSwapActioned }) {
   );
 }
 
+// ─── Manual officer picker used when raising a rank's count on an existing
+// duty — lets the operator hand-pick the specific officer(s) to fill the new
+// slot(s) instead of the system auto-selecting at random. Capped at `need`
+// selections, with the same server-side search used by the swap modal.
+function ManualRankPicker({ dutyId, rankId, need, selectedIds, onToggle }) {
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const { data: officers = [], isLoading } = useQuery({
+    queryKey: ['op-manual-rank-officers', rankId, dutyId, debouncedSearch],
+    queryFn: () => api.get(`/operator/officers/available?rankId=${rankId}&excludeDutyId=${dutyId}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`).then(r => r.data.data.officers),
+    enabled: !!rankId,
+    keepPreviousData: true,
+  });
+
+  if (!rankId || need <= 0) return null;
+
+  return (
+    <div className="p-3 rounded-lg border border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10 space-y-2">
+      <p className="text-xs font-medium text-ink-600 dark:text-ink-300">
+        Pick {need} officer{need > 1 ? 's' : ''} manually ({selectedIds.length}/{need} selected)
+      </p>
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 text-ink-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name or badge number..."
+          className="input-field pl-8 text-xs w-full py-1.5"
+        />
+      </div>
+      {isLoading ? (
+        <p className="text-xs text-ink-400">Loading available officers...</p>
+      ) : officers.length === 0 ? (
+        <p className="text-xs text-red-500">
+          {debouncedSearch ? 'No officers match your search.' : 'No available officers of this rank right now.'}
+        </p>
+      ) : (
+        <div className="space-y-1 max-h-40 overflow-y-auto">
+          {officers.map(o => {
+            const checked = selectedIds.includes(o._id);
+            const disabled = !checked && selectedIds.length >= need;
+            return (
+              <label
+                key={o._id}
+                className={`flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
+                  disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                } ${checked ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-300 dark:border-primary-700' : 'bg-white dark:bg-ink-900 border-ink-200 dark:border-ink-700 hover:border-primary-300'}`}
+              >
+                <input
+                  type="checkbox"
+                  className="accent-primary-600"
+                  checked={checked}
+                  disabled={disabled}
+                  onChange={() => onToggle(o._id)}
+                />
+                <span className="text-ink-800 dark:text-ink-200">{o.name}</span>
+                {o.badgeNumber && <span className="text-[11px] text-ink-400 ml-auto">#{o.badgeNumber}</span>}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Rank Requirements panel — full freedom to raise/lower counts anytime ─────
 function RankRequirementsPanel({ dutyId, duty, ranks, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState([]);
 
+  // How many officers are currently live (assigned/accepted) on each rank —
+  // used to work out how many *new* slots a raised count actually needs, and
+  // therefore whether/how many officers need picking for manual mode.
+  const currentCountByRank = {};
+  (duty.assignedOfficers || []).forEach(a => {
+    if (['assigned', 'accepted'].includes(a.status)) {
+      const rid = a.rankRef?._id || a.rankRef;
+      if (rid) currentCountByRank[rid] = (currentCountByRank[rid] || 0) + 1;
+    }
+  });
+
   const startEdit = () => {
     setRows((duty.rankRequirements || []).map(r => ({
       rankRef: r.rankRef?._id || r.rankRef,
       count: r.count,
+      assignmentType: 'auto',
+      manualOfficerIds: [],
     })));
     setEditing(true);
   };
@@ -301,14 +386,42 @@ function RankRequirementsPanel({ dutyId, duty, ranks, onSaved }) {
     onError: (err) => toast.error(apiError(err)),
   });
 
-  const addRow = () => setRows(r => [...r, { rankRef: '', count: 1 }]);
+  const addRow = () => setRows(r => [...r, { rankRef: '', count: 1, assignmentType: 'auto', manualOfficerIds: [] }]);
   const removeRow = (i) => setRows(r => r.filter((_, idx) => idx !== i));
   const setRow = (i, key, val) => setRows(r => r.map((row, idx) => idx === i ? { ...row, [key]: val } : row));
+
+  const toggleManualOfficer = (i, officerId, need) => {
+    setRows(rs => rs.map((row, idx) => {
+      if (idx !== i) return row;
+      const ids = row.manualOfficerIds || [];
+      let next;
+      if (ids.includes(officerId)) next = ids.filter(x => x !== officerId);
+      else if (ids.length >= need) next = ids;
+      else next = [...ids, officerId];
+      return { ...row, manualOfficerIds: next };
+    }));
+  };
 
   const handleSave = () => {
     const valid = rows.filter(r => r.rankRef && r.count > 0);
     if (valid.length === 0) { toast.error('Add at least one rank requirement'); return; }
-    saveMut.mutate(valid);
+
+    for (const r of valid) {
+      const need = Math.max(0, (parseInt(r.count) || 0) - (currentCountByRank[r.rankRef] || 0));
+      if (need > 0 && r.assignmentType === 'manual' && (r.manualOfficerIds || []).length !== need) {
+        const rankLabel = ranks.find(rk => rk._id === r.rankRef)?.code || 'the selected rank';
+        toast.error(`Select exactly ${need} officer(s) manually for ${rankLabel}, or switch it back to Auto`);
+        return;
+      }
+    }
+
+    const payload = valid.map(r => ({
+      rankRef: r.rankRef,
+      count: r.count,
+      assignmentType: r.assignmentType === 'manual' ? 'manual' : 'auto',
+      ...(r.assignmentType === 'manual' ? { manualOfficerIds: r.manualOfficerIds || [] } : {}),
+    }));
+    saveMut.mutate(payload);
   };
 
   return (
@@ -338,23 +451,64 @@ function RankRequirementsPanel({ dutyId, duty, ranks, onSaved }) {
       ) : (
         <div className="space-y-3">
           <p className="text-xs text-ink-400">
-            Raising a count tries to auto-assign more officers right away. Lowering a count frees up the most recently assigned officer(s) on that rank — this works even on an active duty.
+            Raising a count auto-assigns more officers right away, or you can switch to Manual to hand-pick who fills the new slot(s). Lowering a count frees up the most recently assigned officer(s) on that rank — this works even on an active duty.
           </p>
-          {rows.map((r, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <select className="input-field text-sm flex-1" value={r.rankRef} onChange={e => setRow(i, 'rankRef', e.target.value)}>
-                <option value="">Select rank</option>
-                {ranks.map(rk => <option key={rk._id} value={rk._id}>{rk.code} — {rk.name}</option>)}
-              </select>
-              <input type="number" min={1} className="input-field text-sm w-20" value={r.count}
-                onChange={e => setRow(i, 'count', parseInt(e.target.value) || 1)} />
-              {rows.length > 1 && (
-                <button onClick={() => removeRow(i)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 shrink-0">
-                  <Minus className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          ))}
+          {rows.map((r, i) => {
+            const need = r.rankRef ? Math.max(0, (parseInt(r.count) || 0) - (currentCountByRank[r.rankRef] || 0)) : 0;
+            return (
+              <div key={i} className="space-y-2">
+                <div className="flex gap-2 items-center">
+                  <select className="input-field text-sm flex-1" value={r.rankRef} onChange={e => setRow(i, 'rankRef', e.target.value)}>
+                    <option value="">Select rank</option>
+                    {ranks.map(rk => <option key={rk._id} value={rk._id}>{rk.code} — {rk.name}</option>)}
+                  </select>
+                  <input type="number" min={1} className="input-field text-sm w-20" value={r.count}
+                    onChange={e => setRow(i, 'count', parseInt(e.target.value) || 1)} />
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 shrink-0">
+                      <Minus className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {need > 0 && (
+                  <div className="flex items-center gap-4 pl-1 text-xs text-ink-500 dark:text-ink-400">
+                    <span>Needs {need} more officer{need > 1 ? 's' : ''} — assign:</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`assign-mode-${i}`}
+                        className="accent-primary-600"
+                        checked={r.assignmentType !== 'manual'}
+                        onChange={() => setRow(i, 'assignmentType', 'auto')}
+                      />
+                      Auto
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`assign-mode-${i}`}
+                        className="accent-primary-600"
+                        checked={r.assignmentType === 'manual'}
+                        onChange={() => setRow(i, 'assignmentType', 'manual')}
+                      />
+                      Manual
+                    </label>
+                  </div>
+                )}
+
+                {need > 0 && r.assignmentType === 'manual' && (
+                  <ManualRankPicker
+                    dutyId={dutyId}
+                    rankId={r.rankRef}
+                    need={need}
+                    selectedIds={r.manualOfficerIds || []}
+                    onToggle={(officerId) => toggleManualOfficer(i, officerId, need)}
+                  />
+                )}
+              </div>
+            );
+          })}
           <button onClick={addRow} className="btn-secondary text-xs px-3 py-1.5">
             <Plus className="w-3 h-3" /> Add Rank
           </button>
@@ -945,10 +1099,20 @@ export default function DutyDetail() {
 function ManualOfficerSwap({ dutyId, assignment, mode, pickId, setPickId, onCancel, onConfirm, loading }) {
   const rankId = assignment.rankRef?._id || assignment.rankRef;
 
+  // Debounce the search box so we're not firing a request on every keystroke —
+  // the backend already supports server-side search for large officer pools.
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const { data: officers = [], isLoading } = useQuery({
-    queryKey: ['op-available-officers-swap', rankId, dutyId],
-    queryFn: () => api.get(`/operator/officers/available?rankId=${rankId}&excludeDutyId=${dutyId}`).then(r => r.data.data.officers),
+    queryKey: ['op-available-officers-swap', rankId, dutyId, debouncedSearch],
+    queryFn: () => api.get(`/operator/officers/available?rankId=${rankId}&excludeDutyId=${dutyId}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`).then(r => r.data.data.officers),
     enabled: !!rankId,
+    keepPreviousData: true,
   });
 
   const isActive = mode === 'active';
@@ -969,10 +1133,22 @@ function ManualOfficerSwap({ dutyId, assignment, mode, pickId, setPickId, onCanc
         Currently assigned: <span className="font-medium text-ink-900 dark:text-white">{assignment.officerRef?.name}</span>
         {assignment.rankRef?.name && <> ({assignment.rankRef.name})</>}
       </p>
+      <div className="relative">
+        <Search className="w-4 h-4 text-ink-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name or badge number..."
+          className="input-field pl-9 text-sm w-full"
+        />
+      </div>
       {isLoading ? (
         <p className="text-sm text-ink-400">Loading available officers...</p>
       ) : officers.length === 0 ? (
-        <p className="text-sm text-red-500">No other available officers of this rank right now.</p>
+        <p className="text-sm text-red-500">
+          {debouncedSearch ? 'No officers match your search.' : 'No other available officers of this rank right now.'}
+        </p>
       ) : (
         <div className="space-y-1.5 max-h-56 overflow-y-auto">
           {officers.map(o => (

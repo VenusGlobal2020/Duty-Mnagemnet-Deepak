@@ -10,12 +10,6 @@ const JAIL_RIHAI_URL = 'https://criminal-dossier.stpepl.com/login';
 
 // Items shared across every role's sidebar — placeholder modules + the external Jail Rihai link.
 // `type: 'soon'` renders an in-app "coming soon" page. `type: 'external'` opens a new tab.
-const extraNav = (base) => ([
-  { to: `${base}/leave`, label: 'अवकाश प्रबंधन', icon: CalendarOff, type: 'soon' },
-  { to: `${base}/attendance`, label: 'उपस्थिति', icon: Fingerprint, type: 'soon' },
-  { to: `${base}/audit-log`, label: 'ऑडिट लॉग', icon: ScrollText, type: 'soon' },
-  { to: JAIL_RIHAI_URL, label: 'जेल रिहाई', icon: Unlock, type: 'external' },
-]);
 
 // ─── Master Layout ─────────────────────────────────────────────────────────
 const masterNav = [
@@ -35,6 +29,7 @@ export function MasterLayout() { return <BaseLayout navItems={masterNav} />; }
 const superadminNav = [
   { to: '/superadmin', end: true, label: 'डैशबोर्ड', icon: LayoutDashboard },
   { to: '/superadmin/admins', label: 'एडमिन (एसीपी)', icon: Users },
+  { to: '/superadmin/officers', label: 'सभी अधिकारी', icon: UserCheck },
   { to: '/superadmin/officers/bulk-upload', label: 'अधिकारी बल्क अपलोड', icon: Upload },
   { to: '/superadmin/duties', label: 'सभी ड्यूटी', icon: ClipboardList },
   { to: '/superadmin/map-view', label: 'मानचित्र दृश्य', icon: Map },
@@ -49,6 +44,7 @@ export function SuperadminLayout() { return <BaseLayout navItems={superadminNav}
 const adminNav = [
   { to: '/admin', end: true, label: 'डैशबोर्ड', icon: LayoutDashboard },
   { to: '/admin/operators', label: 'ऑपरेटर', icon: Users },
+  { to: '/admin/officers', label: 'अधिकारी', icon: UserCheck },
   { to: '/admin/duties', label: 'सभी ड्यूटी', icon: ClipboardList },
   { to: '/admin/map-view', label: 'मानचित्र दृश्य', icon: Map },
   { to: '/admin/leave', label: 'अवकाश प्रबंधन', icon: CalendarOff },
@@ -67,7 +63,7 @@ const operatorNav = [
   { to: '/operator/map-view', label: 'मानचित्र दृश्य', icon: Map },
   { to: '/operator/leave', label: 'अवकाश प्रबंधन', icon: CalendarOff },
   // ...extraNav('/operator'),
-  // { to: '/operator/swap-requests', label: 'स्वैप अनुरोध', icon: ArrowLeftRight },
+  { to: '/operator/swap-requests', label: 'स्वैप अनुरोध', icon: ArrowLeftRight },
   { to: '/operator/settings', label: 'सेटिंग्स', icon: Settings },
 ];
 export function OperatorLayout() { return <BaseLayout navItems={operatorNav} />; }

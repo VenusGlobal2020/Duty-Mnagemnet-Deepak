@@ -1,7 +1,7 @@
 // SuperadminDashboard.jsx
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Users, ClipboardList, CheckCircle, XCircle, Star, ChevronRight } from 'lucide-react';
+import { Users, ClipboardList, CheckCircle, XCircle, Star, ChevronRight, CalendarOff } from 'lucide-react';
 import api from '../../api/axios';
 import StatCard from '../../components/common/StatCard';
 import PendingApprovalsCard from '../../components/common/PendingApprovalsCard';
@@ -32,6 +32,10 @@ export function SuperadminDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <StatCard icon={Users} label="Total Admins" value={stats?.totalAdmins} color="blue" sub={`${stats?.activeAdmins ?? 0} active`} />
         <StatCard icon={Users} label="Total Officers" value={stats?.totalOfficers} color="green" />
+        <StatCard
+          icon={CalendarOff} label="On Leave Today" value={stats?.officersOnLeave} color="yellow"
+          onClick={() => navigate('/superadmin/officers?availability=on_leave')}
+        />
         <StatCard icon={ClipboardList} label="Total Duties" value={stats?.totalDuties} color="purple" />
         <StatCard icon={ClipboardList} label="Active Duties" value={stats?.activeDuties} color="orange" />
         <StatCard icon={CheckCircle} label="Completed Duties" value={stats?.completedDuties} color="green" />

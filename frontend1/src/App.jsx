@@ -13,12 +13,14 @@ import BulkUploadOfficers from './pages/master/BulkUploadOfficers';
 import MasterOfficers from './pages/master/MasterOfficers';
 import SuperadminDashboard from './pages/superadmin/SuperadminDashboard';
 import SuperadminAdmins from './pages/superadmin/SuperadminAdmins';
+import SuperadminOfficers from './pages/superadmin/SuperadminOfficers';
 import SuperadminBulkUploadOfficers from './pages/superadmin/SuperadminBulkUploadOfficers';
 import SuperadminDuties from './pages/superadmin/SuperadminDuties';
 import SuperadminLeaves from './pages/superadmin/SuperadminLeaves';
 import SuperadminEmergency from './pages/superadmin/SuperadminEmergency';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminOperators from './pages/admin/AdminOperators';
+import AdminOfficers from './pages/admin/AdminOfficers';
 import AdminDuties from './pages/admin/AdminDuties';
 import AdminLeaves from './pages/admin/AdminLeaves';
 import OperatorDashboard from './pages/operator/OperatorDashboard';
@@ -86,6 +88,7 @@ function AppRoutes() {
       <Route path="/superadmin" element={<ProtectedRoute allowedRoles={['superadmin']}><SuperadminLayout /></ProtectedRoute>}>
         <Route index element={<SuperadminDashboard />} />
         <Route path="admins" element={<SuperadminAdmins />} />
+        <Route path="officers" element={<SuperadminOfficers />} />
         <Route path="officers/bulk-upload" element={<SuperadminBulkUploadOfficers />} />
         <Route path="duties" element={<SuperadminDuties />} />
         <Route path="map-view" element={<MapView />} />
@@ -99,6 +102,7 @@ function AppRoutes() {
       <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminLayout /></ProtectedRoute>}>
         <Route index element={<AdminDashboard />} />
         <Route path="operators" element={<AdminOperators />} />
+        <Route path="officers" element={<AdminOfficers />} />
         <Route path="duties" element={<AdminDuties />} />
         <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<AdminLeaves />} />

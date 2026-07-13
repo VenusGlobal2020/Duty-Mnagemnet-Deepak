@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Users, ClipboardList, CheckCircle, XCircle, Building2, FileEdit, ChevronRight } from 'lucide-react';
+import { Users, ClipboardList, CheckCircle, XCircle, Building2, FileEdit, ChevronRight, CalendarOff } from 'lucide-react';
 import api from '../../api/axios';
 import StatCard from '../../components/common/StatCard';
 import PendingApprovalsCard from '../../components/common/PendingApprovalsCard';
@@ -33,6 +33,10 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard icon={Users} label="Operators" value={stats?.operators} color="blue" />
         <StatCard icon={Users} label="Officers" value={stats?.officers} color="green" />
+        <StatCard
+          icon={CalendarOff} label="On Leave Today" value={stats?.officersOnLeave} color="yellow"
+          onClick={() => navigate('/admin/officers?availability=on_leave')}
+        />
         <StatCard icon={ClipboardList} label="Total Duties" value={stats?.totalDuties} color="purple" />
         <StatCard icon={FileEdit} label="Draft" value={stats?.draftDuties} color="yellow" />
         <StatCard icon={ClipboardList} label="Active Duties" value={stats?.activeDuties} color="orange" />

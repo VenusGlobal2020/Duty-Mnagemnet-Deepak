@@ -1,4 +1,4 @@
-export default function StatCard({ icon: Icon, label, value, color = 'blue', sub }) {
+export default function StatCard({ icon: Icon, label, value, color = 'blue', sub, onClick }) {
   const colors = {
     blue:   { wrap: 'bg-signal2-100 dark:bg-signal2-400/10 text-signal2-600 dark:text-signal2-300', ring: 'text-signal2-400/60' },
     green:  { wrap: 'bg-emerald-100 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400', ring: 'text-emerald-400/60' },
@@ -10,7 +10,11 @@ export default function StatCard({ icon: Icon, label, value, color = 'blue', sub
   const c = colors[color] || colors.blue;
 
   return (
-    <div className={`stat-card bracket-frame ${c.ring}`}>
+    <div
+      className={`stat-card bracket-frame ${c.ring} ${onClick ? 'cursor-pointer hover:brightness-95 dark:hover:brightness-110 transition-[filter]' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${c.wrap}`}>
         <Icon className="w-6 h-6" strokeWidth={2} />
       </div>
