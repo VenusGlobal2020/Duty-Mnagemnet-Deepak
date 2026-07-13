@@ -1,8 +1,8 @@
 import math
 
 EARTH_RADIUS_M = 6371000
-ACCURACY_THRESHOLD_M = 100          # drop points with worse than 100m reported accuracy
-MAX_SPEED_MPS = 55                  # ~198 km/h ceiling — catches GPS teleport glitches
+ACCURACY_THRESHOLD_M = 50          # drop points with worse than 100m reported accuracy
+MAX_SPEED_MPS = 33                  # ~120 km/h ceiling — catches GPS teleport glitches
 
 
 def haversine_meters(lat1, lng1, lat2, lng2):
