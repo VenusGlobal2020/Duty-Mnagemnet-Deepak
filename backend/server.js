@@ -15,6 +15,7 @@ const officerRoutes = require('./routes/officerRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const mapplsRoutes = require('./routes/mapplsRoutes');
+const emergencyRoutes = require('./routes/emergencyRoutes');
 
 const { errorHandler, notFound } = require('./middleware/errorMiddleware');
 const { startDutyStatusCron } = require('./jobs/dutyStatusCron');
@@ -73,6 +74,7 @@ app.use('/api/officer', officerRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/attendance', attendanceRoutes);  // ← NEW
 app.use('/api/mappls', mapplsRoutes);  // ← NEW: OAuth token for map_sdk_plugins (search)
+app.use('/api/emergency', emergencyRoutes);  // ← NEW: Emergency Lockdown — shared "is one active" check for all roles
 
 // Error handling
 app.use(notFound);
