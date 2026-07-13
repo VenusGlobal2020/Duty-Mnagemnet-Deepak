@@ -9,6 +9,9 @@ const {
 const {
   getPendingApprovals, decideLeave, getHierarchyLeaves, getLeaveLocksForSuperadmin,
 } = require('../controllers/leaveController');
+const {
+  declareEmergency, endEmergency, getEmergencyHistory,
+} = require('../controllers/emergencyController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { uploadOfficerExcel } = require('../config/cloudinary');
 
@@ -43,5 +46,11 @@ router.get('/leaves/approvals', getPendingApprovals);
 router.patch('/leaves/:id/decide', decideLeave);
 router.get('/leaves', getHierarchyLeaves);
 router.get('/leaves/locks', getLeaveLocksForSuperadmin); // read-only — only admin can unlock
+
+// ─── Emergency Lockdown ───────────────────────────────────────────────────────
+// Declare/end a hierarchy-wide leave freeze; see controllers/emergencyController.js
+router.post('/emergency', declareEmergency);
+router.patch('/emergency/:id/end', endEmergency);
+router.get('/emergency', getEmergencyHistory);
 
 module.exports = router;

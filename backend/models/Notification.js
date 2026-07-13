@@ -26,6 +26,8 @@ const notificationSchema = new mongoose.Schema({
       'leave_cancelled',
       'leave_conflict',
       'leave_threshold_locked',
+      'emergency_declared',
+      'emergency_ended',
       'general',
     ],
     default: 'general',

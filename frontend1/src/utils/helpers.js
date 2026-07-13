@@ -20,7 +20,7 @@ export const getStatusColor = (status) => {
     active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
     suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     inactive: 'bg-ink-100 text-ink-600 dark:bg-white/[0.06] dark:text-ink-400',
-    completed: 'bg-signal2-100 text-signal2-700 dark:bg-signal2-900/30 dark:text-signal2-400',
+    completed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
     cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     draft: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     accepted: 'bg-emerald-100 text-emerald-700',
@@ -33,6 +33,45 @@ export const getStatusColor = (status) => {
   };
   return map[status] || 'bg-ink-100 text-ink-600';
 };
+
+// Whole-row tint + left accent bar for duty tables — draft=yellow, active=green,
+// completed=blue, cancelled=red — so status is readable at a glance without
+// reading every badge. Pair with <StatusLegend items={DUTY_STATUS_LEGEND} />.
+export const getDutyRowClass = (status) => {
+  const map = {
+    draft: 'border-l-4 border-amber-400 bg-amber-50/50 dark:bg-amber-900/[0.07]',
+    active: 'border-l-4 border-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/[0.07]',
+    completed: 'border-l-4 border-blue-400 bg-blue-50/50 dark:bg-blue-900/[0.07]',
+    cancelled: 'border-l-4 border-red-400 bg-red-50/50 dark:bg-red-900/[0.07]',
+  };
+  return map[status] || 'border-l-4 border-transparent';
+};
+
+export const DUTY_STATUS_LEGEND = [
+  { status: 'draft', label: 'Draft', dot: 'bg-amber-400' },
+  { status: 'active', label: 'Active', dot: 'bg-emerald-400' },
+  { status: 'completed', label: 'Completed', dot: 'bg-blue-400' },
+  { status: 'cancelled', label: 'Cancelled', dot: 'bg-red-400' },
+];
+
+// Same idea for leave request tables — pending=yellow, approved=green,
+// rejected=red, cancelled=grey.
+export const getLeaveRowClass = (status) => {
+  const map = {
+    pending: 'border-l-4 border-amber-400 bg-amber-50/50 dark:bg-amber-900/[0.07]',
+    approved: 'border-l-4 border-emerald-400 bg-emerald-50/50 dark:bg-emerald-900/[0.07]',
+    rejected: 'border-l-4 border-red-400 bg-red-50/50 dark:bg-red-900/[0.07]',
+    cancelled: 'border-l-4 border-ink-300 bg-ink-50/50 dark:bg-white/[0.03]',
+  };
+  return map[status] || 'border-l-4 border-transparent';
+};
+
+export const LEAVE_STATUS_LEGEND = [
+  { status: 'pending', label: 'Pending', dot: 'bg-amber-400' },
+  { status: 'approved', label: 'Approved', dot: 'bg-emerald-400' },
+  { status: 'rejected', label: 'Rejected', dot: 'bg-red-400' },
+  { status: 'cancelled', label: 'Cancelled', dot: 'bg-ink-400' },
+];
 
 export const getPriorityColor = (priority) => {
   const map = {

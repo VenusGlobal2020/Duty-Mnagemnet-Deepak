@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FileText, CheckCircle, XCircle, RefreshCw, Clock } from 'lucide-react';
 import api from '../../api/axios';
-import { formatDateTime, getStatusColor } from '../../utils/helpers';
+import { formatDateTime, getStatusColor, getDutyRowClass, DUTY_STATUS_LEGEND } from '../../utils/helpers';
 import Pagination from '../../components/common/Pagination';
+import StatusLegend from '../../components/common/StatusLegend';
 
 const ASSIGNMENT_LABELS = {
   accepted:  { label: 'Accepted',  color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',   Icon: CheckCircle },
@@ -47,6 +48,7 @@ export default function OfficerHistory() {
         <>
           {/* Desktop table */}
           <div className="card overflow-hidden hidden sm:block">
+            <StatusLegend items={DUTY_STATUS_LEGEND} />
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -63,7 +65,7 @@ export default function OfficerHistory() {
                     const asnInfo = ASSIGNMENT_LABELS[duty.myAssignmentStatus] || ASSIGNMENT_LABELS.unknown;
                     const { Icon } = asnInfo;
                     return (
-                      <tr key={duty._id} className="table-row">
+                      <tr key={duty._id} className={`table-row ${getDutyRowClass(duty.status)}`}>
                         <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                           {duty.dutyName}
                           {duty.myRejectionReason && (
@@ -99,11 +101,14 @@ export default function OfficerHistory() {
 
           {/* Mobile cards */}
           <div className="space-y-3 sm:hidden">
+            <div className="card">
+              <StatusLegend items={DUTY_STATUS_LEGEND} />
+            </div>
             {duties.map(duty => {
               const asnInfo = ASSIGNMENT_LABELS[duty.myAssignmentStatus] || ASSIGNMENT_LABELS.unknown;
               const { Icon } = asnInfo;
               return (
-                <div key={duty._id} className="card p-4 space-y-3">
+                <div key={duty._id} className={`card p-4 space-y-3 ${getDutyRowClass(duty.status)}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-gray-900 dark:text-white truncate">{duty.dutyName}</p>

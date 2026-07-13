@@ -2,11 +2,17 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { Shield, LogOut, X, ExternalLink, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getRoleLabel } from '../../utils/helpers';
+import useLeaveNotifBadge from '../../hooks/useLeaveNotifBadge';
 import ThemeToggle from '../common/ThemeToggle';
 
 export default function Sidebar({ navItems, onClose }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  // Unread leave-related notifications (new request awaiting decision, a
+  // decision on your own request, conflicts, threshold locks...) — used to
+  // highlight the "अवकाश प्रबंधन" tab below so it's obvious something needs
+  // attention without having to open the bell dropdown first.
+  const leaveUnreadCount = useLeaveNotifBadge();
 
   const handleLogout = () => {
     logout();
@@ -72,6 +78,11 @@ export default function Sidebar({ navItems, onClose }) {
             );
           }
 
+          // Highlight this item when it's the leave module and there's an
+          // unread leave notification (new request, decision, conflict...).
+          const isLeaveTab = item.to.endsWith('/leave');
+          const showLeaveBadge = isLeaveTab && leaveUnreadCount > 0;
+
           return (
             <NavLink
               key={item.to}
@@ -79,16 +90,28 @@ export default function Sidebar({ navItems, onClose }) {
               end={item.end}
               onClick={onClose}
               className={({ isActive }) =>
-                `sidebar-link ${isActive ? 'sidebar-link-active' : 'sidebar-link-inactive'}`
+                `sidebar-link ${isActive ? 'sidebar-link-active' : 'sidebar-link-inactive'} ${
+                  showLeaveBadge && !isActive ? 'ring-1 ring-signal-400/60 bg-signal-50/70 dark:bg-signal-500/[0.08]' : ''
+                }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span className="relative shrink-0">
+                    <item.icon className="w-4 h-4" />
+                    {showLeaveBadge && (
+                      <span className="absolute -top-1.5 -right-1.5 w-2 h-2 rounded-full bg-signal-500 ring-2 ring-white dark:ring-ink-900 animate-pulseDot" />
+                    )}
+                  </span>
                   <span className="flex-1">{item.label}</span>
                   {item.type === 'soon' && (
                     <span className={`text-[9px] font-mono font-semibold tracking-wide px-1.5 py-0.5 rounded ${isActive ? 'bg-white/20 text-white' : 'bg-ink-100 dark:bg-white/[0.06] text-ink-400'} shrink-0`}>
                       SOON
+                    </span>
+                  )}
+                  {showLeaveBadge && (
+                    <span className={`text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center shrink-0 ${isActive ? 'bg-white/25 text-white' : 'bg-signal-500 text-white'}`}>
+                      {leaveUnreadCount > 9 ? '9+' : leaveUnreadCount}
                     </span>
                   )}
                   {isActive && !item.type && <ChevronRight className="w-3.5 h-3.5 text-white/80 shrink-0" />}

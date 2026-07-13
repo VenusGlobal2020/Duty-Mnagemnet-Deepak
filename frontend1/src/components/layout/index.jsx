@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Shield, Star, Upload, UserCheck,
   ClipboardList, Settings, FileText, CalendarOff, Fingerprint,
   ScrollText, Unlock, Map, Layers,
-  ArrowLeftRight,
+  ArrowLeftRight, Siren,
 } from 'lucide-react';
 
 const JAIL_RIHAI_URL = 'https://criminal-dossier.stpepl.com/login';
@@ -39,6 +39,7 @@ const superadminNav = [
   { to: '/superadmin/duties', label: 'सभी ड्यूटी', icon: ClipboardList },
   { to: '/superadmin/map-view', label: 'मानचित्र दृश्य', icon: Map },
   { to: '/superadmin/leave', label: 'अवकाश प्रबंधन', icon: CalendarOff },
+  { to: '/superadmin/emergency', label: 'आपातकालीन लॉकडाउन', icon: Siren },
   // ...extraNav('/superadmin'),
   { to: '/superadmin/settings', label: 'सेटिंग्स', icon: Settings },
 ];

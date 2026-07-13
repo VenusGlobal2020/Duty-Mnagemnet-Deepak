@@ -5,9 +5,11 @@ import { Search, Plus, ClipboardList, ClipboardCheck, Loader2, Download } from '
 import api from '../../api/axios';
 import {
   formatDateTime, getStatusColor, getPriorityColor,
-  getPriorityLabel, getDutyTypeColor, truncate, apiError
+  getPriorityLabel, getDutyTypeColor, truncate, apiError,
+  getDutyRowClass, DUTY_STATUS_LEGEND,
 } from '../../utils/helpers';
 import Pagination from '../../components/common/Pagination';
+import StatusLegend from '../../components/common/StatusLegend';
 import toast from 'react-hot-toast';
 
 // Inline mini attendance badge
@@ -97,6 +99,7 @@ export default function ManageDuties() {
       </div>
 
       <div className="card overflow-hidden">
+        <StatusLegend items={DUTY_STATUS_LEGEND} />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -121,7 +124,7 @@ export default function ManageDuties() {
                 data?.data?.map(duty => (
                   <tr
                     key={duty._id}
-                    className="table-row cursor-pointer group"
+                    className={`table-row cursor-pointer group ${getDutyRowClass(duty.status)}`}
                     onClick={() => navigate(`/operator/duties/${duty._id}`)}
                   >
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{truncate(duty.dutyName, 25)}</td>

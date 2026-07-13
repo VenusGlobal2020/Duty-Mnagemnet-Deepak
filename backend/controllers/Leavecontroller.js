@@ -11,6 +11,7 @@ const { createNotification } = require('../utils/notificationService');
 const { notifyLeaveDecision } = require('../utils/whatsapp');
 const { todayISTStr, dateOnlyUTC } = require('../utils/dateIST');
 const engine = require('../utils/leaveEngine');
+const { getActiveEmergencyPeriod } = require('../utils/emergencyEngine');
 
 const LEAVE_TYPE_LABELS = {
   casual: 'Casual Leave', earned: 'Earned Leave', emergency: 'Emergency Leave',
@@ -57,6 +58,18 @@ const requestLeave = asyncHandler(async (req, res) => {
 
     const routing = await engine.determineApprover({ applicantUser: req.user, officer: null, rank: null, leaveType, totalDays });
 
+    // Emergency Lockdown active for these dates? Force straight to the
+    // superadmin regardless of normal routing — see utils/emergencyEngine.js.
+    const emergency = await getActiveEmergencyPeriod(req.user.superadminRef, from, to);
+    const finalRouting = emergency
+      ? {
+          approverLevel: 'superadmin',
+          eligibleApprovers: [emergency.superadminRef],
+          routingFallback: true,
+          routingNote: `Emergency Lockdown active ("${emergency.reason}") — routed directly to Superadmin for review`,
+        }
+      : routing;
+
     const leave = await LeaveRequest.create({
       officerRef: null,
       applicantRef: req.user._id,
@@ -67,12 +80,15 @@ const requestLeave = asyncHandler(async (req, res) => {
       fromDate: from, toDate: to, totalDays,
       remark: remark || '',
       document: req.file ? { url: req.file.path, publicId: req.file.filename, originalName: req.file.originalname } : undefined,
-      approverLevel: routing.approverLevel,
-      eligibleApprovers: routing.eligibleApprovers,
-      timeline: [{ action: 'REQUESTED', performedBy: req.user._id }],
+      approverLevel: finalRouting.approverLevel,
+      eligibleApprovers: finalRouting.eligibleApprovers,
+      routingFallback: finalRouting.routingFallback,
+      routingNote: finalRouting.routingNote,
+      emergencyPeriodRef: emergency?._id || null,
+      timeline: [{ action: 'REQUESTED', performedBy: req.user._id, note: finalRouting.routingNote || undefined }],
     });
 
-    for (const approverId of routing.eligibleApprovers) {
+    for (const approverId of finalRouting.eligibleApprovers) {
       await createNotification({
         recipientId: approverId,
         title: 'New Leave Request',
@@ -115,6 +131,18 @@ const requestLeave = asyncHandler(async (req, res) => {
     return errorResponse(res, e.statusCode || 400, e.message);
   }
 
+  // Emergency Lockdown active for these dates? Force straight to the
+  // superadmin regardless of normal Inspector/DSP/Admin routing.
+  const emergency = await getActiveEmergencyPeriod(officer.superadminRef, from, to);
+  const finalRouting = emergency
+    ? {
+        approverLevel: 'superadmin',
+        eligibleApprovers: [emergency.superadminRef],
+        routingFallback: true,
+        routingNote: `Emergency Lockdown active ("${emergency.reason}") — routed directly to Superadmin for review`,
+      }
+    : routing;
+
   const leave = await LeaveRequest.create({
     officerRef: officer._id,
     applicantRef: req.user._id,
@@ -129,14 +157,15 @@ const requestLeave = asyncHandler(async (req, res) => {
     fromDate: from, toDate: to, totalDays,
     remark: remark || '',
     document: req.file ? { url: req.file.path, publicId: req.file.filename, originalName: req.file.originalname } : undefined,
-    approverLevel: routing.approverLevel,
-    eligibleApprovers: routing.eligibleApprovers,
-    routingFallback: routing.routingFallback,
-    routingNote: routing.routingNote,
-    timeline: [{ action: 'REQUESTED', performedBy: req.user._id, note: routing.routingNote || undefined }],
+    approverLevel: finalRouting.approverLevel,
+    eligibleApprovers: finalRouting.eligibleApprovers,
+    routingFallback: finalRouting.routingFallback,
+    routingNote: finalRouting.routingNote,
+    emergencyPeriodRef: emergency?._id || null,
+    timeline: [{ action: 'REQUESTED', performedBy: req.user._id, note: finalRouting.routingNote || undefined }],
   });
 
-  for (const approverId of routing.eligibleApprovers) {
+  for (const approverId of finalRouting.eligibleApprovers) {
     await createNotification({
       recipientId: approverId,
       title: 'New Leave Request',

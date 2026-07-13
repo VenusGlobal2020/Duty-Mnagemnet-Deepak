@@ -9,10 +9,12 @@ import api from '../../api/axios';
 import {
   formatDateTime, getStatusColor, getPriorityColor,
   getPriorityLabel, getDutyTypeColor, getRoleLabel,
+  getDutyRowClass, DUTY_STATUS_LEGEND,
 } from '../../utils/helpers';
 import Pagination from '../../components/common/Pagination';
 import Modal from '../../components/common/Modal';
 import TrackMapModal from '../../components/common/TrackMapModal';
+import StatusLegend from '../../components/common/StatusLegend';
 
 // ─── Helper badges ────────────────────────────────────────────────────────────
 function AttBadge({ status }) {
@@ -458,6 +460,7 @@ function DutiesTable({ queryKey, queryFn, apiPrefix, showAdmin = false, showOper
       </div>
 
       <div className="card overflow-hidden">
+        <StatusLegend items={DUTY_STATUS_LEGEND} />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
@@ -475,7 +478,7 @@ function DutiesTable({ queryKey, queryFn, apiPrefix, showAdmin = false, showOper
               ) : data?.data?.length === 0 ? (
                 <tr><td colSpan={headers.length} className="py-10 text-center text-gray-400 text-sm">No duties found</td></tr>
               ) : data?.data?.map(duty => (
-                <tr key={duty._id} className="table-row">
+                <tr key={duty._id} className={`table-row ${getDutyRowClass(duty.status)}`}>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => setSelectedDutyId(duty._id)}

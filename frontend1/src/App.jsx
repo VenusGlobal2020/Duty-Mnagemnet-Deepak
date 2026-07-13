@@ -16,6 +16,7 @@ import SuperadminAdmins from './pages/superadmin/SuperadminAdmins';
 import SuperadminBulkUploadOfficers from './pages/superadmin/SuperadminBulkUploadOfficers';
 import SuperadminDuties from './pages/superadmin/SuperadminDuties';
 import SuperadminLeaves from './pages/superadmin/SuperadminLeaves';
+import SuperadminEmergency from './pages/superadmin/SuperadminEmergency';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminOperators from './pages/admin/AdminOperators';
 import AdminDuties from './pages/admin/AdminDuties';
@@ -89,6 +90,7 @@ function AppRoutes() {
         <Route path="duties" element={<SuperadminDuties />} />
         <Route path="map-view" element={<MapView />} />
         <Route path="leave" element={<SuperadminLeaves />} />
+        <Route path="emergency" element={<SuperadminEmergency />} />
         <Route path="attendance" element={<ComingSoonPage />} />
         <Route path="audit-log" element={<ComingSoonPage />} />
         <Route path="settings" element={<SettingsPage />} />

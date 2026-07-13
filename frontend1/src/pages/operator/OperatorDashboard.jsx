@@ -4,6 +4,7 @@ import { ClipboardList, UserCheck, Plus, AlertCircle, CheckCircle, ChevronRight,
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
 import StatCard from '../../components/common/StatCard';
+import PendingApprovalsCard from '../../components/common/PendingApprovalsCard';
 import { formatDateTime, getPriorityColor, getPriorityLabel, getStatusColor, getDutyTypeColor } from '../../utils/helpers';
 
 export default function OperatorDashboard() {
@@ -25,6 +26,14 @@ export default function OperatorDashboard() {
     queryKey: ['op-officers-count'],
     queryFn: () => api.get('/operator/officers?limit=1').then(r => r.data.data),
   });
+
+  // Swap requests waiting on this operator's accept/reject decision — the
+  // endpoint defaults to status=pending, so this list *is* the queue.
+  const { data: pendingSwapsData } = useQuery({
+    queryKey: ['op-dashboard-pending-swaps'],
+    queryFn: () => api.get('/operator/swaps').then(r => r.data.data),
+  });
+  const pendingSwaps = pendingSwapsData?.swaps || [];
 
   return (
     <div className="space-y-6">
@@ -49,6 +58,32 @@ export default function OperatorDashboard() {
         <StatCard icon={UserCheck} label="Officers" value={officersData?.pagination?.total ?? 0} color="purple" />
         <StatCard icon={AlertCircle} label="Role" value={isSpecial ? 'Special' : 'Regular'} color="orange" />
       </div>
+
+      <PendingApprovalsCard
+        title="Swap Requests"
+        count={pendingSwaps.length}
+        items={pendingSwaps.slice(0, 3)}
+        viewAllTo="/operator/swap-requests"
+        renderItem={swap => (
+          <div
+            key={swap._id}
+            onClick={() => navigate('/operator/swap-requests')}
+            className="px-4 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-ink-50 dark:hover:bg-white/[0.03] transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink-900 dark:text-white truncate">
+                {swap.fromOfficer?.name || swap.requestedBy?.name || '—'}
+                <span className="text-ink-400 font-normal"> → </span>
+                {swap.toOfficer?.name || '—'}
+              </p>
+              <p className="text-xs text-ink-500 dark:text-ink-400 truncate">
+                Duty: {swap.duty?.dutyName || '—'}
+              </p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-ink-300 shrink-0" />
+          </div>
+        )}
+      />
 
       {/* Recent duties */}
       <div className="card">

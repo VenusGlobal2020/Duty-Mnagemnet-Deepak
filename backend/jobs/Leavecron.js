@@ -1,9 +1,11 @@
 const cron = require('node-cron');
 const Officer = require('../models/Officer');
 const LeaveRequest = require('../models/LeaveRequest');
+const EmergencyPeriod = require('../models/EmergencyPeriod');
 const { todayISTStr, dateOnlyUTC, enumerateDateStrs } = require('../utils/dateIST');
 const { recomputeLocksForRange } = require('../utils/leaveEngine');
-const { createNotification } = require('../utils/notificationService');
+const { createNotification, bulkNotify } = require('../utils/notificationService');
+const { getAllUserIdsUnderSuperadmin } = require('../utils/emergencyEngine');
 
 // ─── LEAVE LIFECYCLE CRON ────────────────────────────────────────────────────
 //   available -> on_leave        the moment an approved leave's fromDate is reached
@@ -76,6 +78,33 @@ const sweepThresholdLocks = async () => {
   return adminRefs.length;
 };
 
+// Auto-ends any Emergency Lockdown whose endDate has passed, and broadcasts
+// the "lockdown ended" notification to that superadmin's whole hierarchy —
+// mirrors the manual "End Now" path in emergencyController.endEmergency.
+const endExpiredEmergencyPeriods = async () => {
+  const now = new Date();
+  const expired = await EmergencyPeriod.find({ status: 'active', endDate: { $lt: now } });
+  if (expired.length === 0) return 0;
+
+  for (const ep of expired) {
+    ep.status = 'ended';
+    ep.endedBy = 'auto';
+    ep.timeline.push({ action: 'ENDED', performedBy: null, note: 'Emergency period end time reached — automatically ended' });
+    await ep.save();
+
+    const recipientIds = await getAllUserIdsUnderSuperadmin(ep.superadminRef);
+    await bulkNotify(
+      recipientIds,
+      '✅ Emergency Lockdown Ended',
+      `The Emergency Lockdown ("${ep.reason}") has ended. Normal leave approval routing has resumed.`,
+      'emergency_ended',
+      null,
+      true
+    );
+  }
+  return expired.length;
+};
+
 let isRunning = false;
 
 const runLeaveSweep = async () => {
@@ -85,8 +114,9 @@ const runLeaveSweep = async () => {
     const started = await flipOfficersStartingLeaveToday();
     const ended = await flipOfficersWhoseLeaveEnded();
     const adminsSwept = await sweepThresholdLocks();
-    if (started || ended) {
-      console.log(`[leave-cron] ${new Date().toISOString()} — started: ${started}, ended: ${ended}, locks swept for ${adminsSwept} admin(s)`);
+    const emergenciesEnded = await endExpiredEmergencyPeriods();
+    if (started || ended || emergenciesEnded) {
+      console.log(`[leave-cron] ${new Date().toISOString()} — started: ${started}, ended: ${ended}, locks swept for ${adminsSwept} admin(s), emergency periods auto-ended: ${emergenciesEnded}`);
     }
   } catch (err) {
     console.error('[leave-cron] sweep failed:', err);
