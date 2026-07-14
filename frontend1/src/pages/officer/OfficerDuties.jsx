@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, XCircle, MapPin, Clock, AlertCircle,
   Navigation, LogIn, LogOut, CheckCircle, Loader2, ExternalLink, Lock,
@@ -122,7 +123,7 @@ function ColleaguePicker({ search, setSearch, colleagues, isLoading, selectedId,
 }
 
 // ─── Single duty card ─────────────────────────────────────────────────────────
-function DutyCard({ duty }) {
+function DutyCard({ duty, highlighted, cardRef }) {
   const qc = useQueryClient();
   const [rejectOpen, setRejectOpen]   = useState(false);
   const [swapOpen, setSwapOpen]       = useState(false);
@@ -248,8 +249,11 @@ function DutyCard({ duty }) {
   const hasPendingSwap = mySwapReq && mySwapReq.status === 'pending';
 
   return (
-    <div className="card p-5 space-y-4">
-      {/* Header */}
+    <div
+      ref={cardRef}
+      id={`duty-${duty._id}`}
+      className={`card p-5 space-y-4 transition-shadow ${highlighted ? 'ring-2 ring-signal-400 shadow-glow-signal' : ''}`}
+    >
       <div className="flex items-start justify-between">
         <div>
           <h2 className="font-bold text-ink-900 dark:text-white text-lg">{duty.dutyName}</h2>
@@ -524,10 +528,22 @@ function DutyCard({ duty }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function OfficerDuties() {
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('duty');
+  const highlightRef = useRef(null);
+
   const { data: duties = [], isLoading } = useQuery({
     queryKey: ['officer-active'],
     queryFn: () => api.get('/officer/duties/active').then(r => r.data.data.duties),
   });
+
+  // Deep-link support: a duty notification navigates here as `?duty=<id>` —
+  // scroll to and highlight that duty's card once the list has loaded.
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightId, duties]);
 
   return (
     <div className="space-y-6">
@@ -543,7 +559,17 @@ export default function OfficerDuties() {
         </div>
       ) : (
         <div className="space-y-4">
-          {duties.map(duty => <DutyCard key={duty._id} duty={duty} />)}
+          {duties.map(duty => {
+            const isHighlighted = highlightId && String(duty._id) === String(highlightId);
+            return (
+              <DutyCard
+                key={duty._id}
+                duty={duty}
+                highlighted={isHighlighted}
+                cardRef={isHighlighted ? highlightRef : null}
+              />
+            );
+          })}
         </div>
       )}
     </div>

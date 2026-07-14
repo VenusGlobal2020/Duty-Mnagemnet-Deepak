@@ -1,31 +1,21 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, Check, CheckCheck, Trash2, Filter } from 'lucide-react';
 import api from '../../api/axios';
 import { timeAgo } from '../../utils/helpers';
+import { useAuth } from '../../contexts/AuthContext';
+import { getDutyNavPath } from '../../utils/notifNav';
+import { getNotifMeta } from '../../utils/notifIcons';
 import Pagination from '../../components/common/Pagination';
 import toast from 'react-hot-toast';
-
-const TYPE_META = {
-  duty_assigned:     { icon: '📋', label: 'Duty Assigned',       color: 'bg-blue-50 dark:bg-blue-900/10' },
-  duty_updated:      { icon: '✏️',  label: 'Duty Updated',        color: 'bg-yellow-50 dark:bg-yellow-900/10' },
-  duty_cancelled:    { icon: '❌',  label: 'Duty Cancelled',      color: 'bg-red-50 dark:bg-red-900/10' },
-  duty_rejected:     { icon: '🚫', label: 'Officer Rejected',    color: 'bg-orange-50 dark:bg-orange-900/10' },
-  officer_replaced:  { icon: '🔄', label: 'Officer Replaced',    color: 'bg-purple-50 dark:bg-purple-900/10' },
-  account_suspended: { icon: '🔒', label: 'Account Suspended',   color: 'bg-red-50 dark:bg-red-900/10' },
-  account_activated: { icon: '✅', label: 'Account Activated',   color: 'bg-green-50 dark:bg-green-900/10' },
-  swap_requested:    { icon: '🔃', label: 'Swap Requested',      color: 'bg-amber-50 dark:bg-amber-900/10' },
-  swap_accepted:     { icon: '✅', label: 'Swap Accepted',       color: 'bg-emerald-50 dark:bg-emerald-900/10' },
-  swap_rejected:     { icon: '❌', label: 'Swap Rejected',       color: 'bg-red-50 dark:bg-red-900/10' },
-  swap_cancelled:    { icon: '↩️', label: 'Swap Cancelled',      color: 'bg-gray-50 dark:bg-gray-900/10' },
-  officer_swapped:   { icon: '🔄', label: 'Officer Swapped',     color: 'bg-purple-50 dark:bg-purple-900/10' },
-  general:           { icon: '🔔', label: 'General',             color: '' },
-};
 
 export default function NotificationsPage() {
   const [page, setPage] = useState(1);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { user } = useAuth();
 
   const { data, isLoading } = useQuery({
     queryKey: ['notifications-page', page, unreadOnly],
@@ -62,6 +52,15 @@ export default function NotificationsPage() {
   const notifications = data?.notifications || [];
   const pagination = data?.pagination;
   const unreadCount = data?.unreadCount || 0;
+
+  // If this notification is about a duty, mark it read and jump straight to
+  // that duty's detail view for the current role.
+  const handleClick = (n) => {
+    const dutyPath = n.relatedDuty ? getDutyNavPath(user?.role, n.relatedDuty) : null;
+    if (!dutyPath) return;
+    if (!n.isRead) markRead.mutate(n._id);
+    navigate(dutyPath);
+  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
@@ -115,18 +114,22 @@ export default function NotificationsPage() {
         ) : (
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
             {notifications.map(n => {
-              const meta = TYPE_META[n.type] || TYPE_META.general;
+              const meta = getNotifMeta(n.type);
+              const isDutyNotif = !!n.relatedDuty && !!getDutyNavPath(user?.role, n.relatedDuty);
               return (
                 <div
                   key={n._id}
-                  className={`flex gap-3 px-4 py-3.5 group transition-colors ${
+                  onClick={() => handleClick(n)}
+                  className={`flex gap-3 px-4 py-3.5 group transition-colors ${isDutyNotif ? 'cursor-pointer' : ''} ${
                     !n.isRead
-                      ? `${meta.color || 'bg-primary-50 dark:bg-primary-900/10'}`
+                      ? `${meta.bg || 'bg-primary-50 dark:bg-primary-900/10'}`
                       : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
                   }`}
                 >
                   {/* Icon */}
-                  <div className="text-xl shrink-0 mt-0.5 w-7 text-center">{meta.icon}</div>
+                  <div className={`w-8 h-8 rounded-lg shrink-0 mt-0.5 flex items-center justify-center ${meta.bg}`}>
+                    <meta.icon className={`w-4 h-4 ${meta.fg}`} />
+                  </div>
 
                   {/* Body */}
                   <div className="flex-1 min-w-0">
@@ -147,11 +150,20 @@ export default function NotificationsPage() {
                       <span className="text-xs text-gray-400">{timeAgo(n.createdAt)}</span>
                       <span className="text-xs text-gray-300 dark:text-gray-600">•</span>
                       <span className="text-xs text-gray-400">{meta.label}</span>
+                      {isDutyNotif && (
+                        <>
+                          <span className="text-xs text-gray-300 dark:text-gray-600">•</span>
+                          <span className="text-xs text-primary-600 dark:text-primary-400 font-medium">ड्यूटी देखें →</span>
+                        </>
+                      )}
                     </div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <div
+                    className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    onClick={e => e.stopPropagation()}
+                  >
                     {!n.isRead && (
                       <button
                         onClick={() => markRead.mutate(n._id)}

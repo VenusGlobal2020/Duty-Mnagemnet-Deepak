@@ -3,6 +3,7 @@ import { Shield, LogOut, X, ExternalLink, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getRoleLabel } from '../../utils/helpers';
 import useLeaveNotifBadge from '../../hooks/useLeaveNotifBadge';
+import useUnreadNotifCount from '../../hooks/useUnreadNotifCount';
 import ThemeToggle from '../common/ThemeToggle';
 
 export default function Sidebar({ navItems, onClose }) {
@@ -13,6 +14,8 @@ export default function Sidebar({ navItems, onClose }) {
   // highlight the "अवकाश प्रबंधन" tab below so it's obvious something needs
   // attention without having to open the bell dropdown first.
   const leaveUnreadCount = useLeaveNotifBadge();
+  // Unread count across all notifications — badges the "सूचनाएं" tab.
+  const notifUnreadCount = useUnreadNotifCount();
 
   const handleLogout = () => {
     logout();
@@ -83,6 +86,9 @@ export default function Sidebar({ navItems, onClose }) {
           const isLeaveTab = item.to.endsWith('/leave');
           const showLeaveBadge = isLeaveTab && leaveUnreadCount > 0;
 
+          const isNotifTab = item.to.endsWith('/notifications');
+          const showNotifBadge = isNotifTab && notifUnreadCount > 0;
+
           return (
             <NavLink
               key={item.to}
@@ -92,6 +98,8 @@ export default function Sidebar({ navItems, onClose }) {
               className={({ isActive }) =>
                 `sidebar-link ${isActive ? 'sidebar-link-active' : 'sidebar-link-inactive'} ${
                   showLeaveBadge && !isActive ? 'ring-1 ring-signal-400/60 bg-signal-50/70 dark:bg-signal-500/[0.08]' : ''
+                } ${
+                  showNotifBadge && !isActive ? 'ring-1 ring-signal-400/60 bg-signal-50/70 dark:bg-signal-500/[0.08]' : ''
                 }`
               }
             >
@@ -100,6 +108,9 @@ export default function Sidebar({ navItems, onClose }) {
                   <span className="relative shrink-0">
                     <item.icon className="w-4 h-4" />
                     {showLeaveBadge && (
+                      <span className="absolute -top-1.5 -right-1.5 w-2 h-2 rounded-full bg-signal-500 ring-2 ring-white dark:ring-ink-900 animate-pulseDot" />
+                    )}
+                    {showNotifBadge && (
                       <span className="absolute -top-1.5 -right-1.5 w-2 h-2 rounded-full bg-signal-500 ring-2 ring-white dark:ring-ink-900 animate-pulseDot" />
                     )}
                   </span>
@@ -112,6 +123,11 @@ export default function Sidebar({ navItems, onClose }) {
                   {showLeaveBadge && (
                     <span className={`text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center shrink-0 ${isActive ? 'bg-white/25 text-white' : 'bg-signal-500 text-white'}`}>
                       {leaveUnreadCount > 9 ? '9+' : leaveUnreadCount}
+                    </span>
+                  )}
+                  {showNotifBadge && (
+                    <span className={`text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center shrink-0 ${isActive ? 'bg-white/25 text-white' : 'bg-signal-500 text-white'}`}>
+                      {notifUnreadCount > 9 ? '9+' : notifUnreadCount}
                     </span>
                   )}
                   {isActive && !item.type && <ChevronRight className="w-3.5 h-3.5 text-white/80 shrink-0" />}

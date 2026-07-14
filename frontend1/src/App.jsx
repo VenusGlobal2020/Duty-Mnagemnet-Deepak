@@ -73,6 +73,7 @@ function AppRoutes() {
 
       <Route path="/master" element={<ProtectedRoute allowedRoles={['master']}><MasterLayout /></ProtectedRoute>}>
         <Route index element={<MasterDashboard />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="superadmin" element={<ManageSuperadmin />} />
         <Route path="admins" element={<ManageAdmins />} />
         <Route path="ranks" element={<ManageRanks />} />
@@ -87,6 +88,7 @@ function AppRoutes() {
 
       <Route path="/superadmin" element={<ProtectedRoute allowedRoles={['superadmin']}><SuperadminLayout /></ProtectedRoute>}>
         <Route index element={<SuperadminDashboard />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="admins" element={<SuperadminAdmins />} />
         <Route path="officers" element={<SuperadminOfficers />} />
         <Route path="officers/bulk-upload" element={<SuperadminBulkUploadOfficers />} />
@@ -101,6 +103,7 @@ function AppRoutes() {
 
       <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminLayout /></ProtectedRoute>}>
         <Route index element={<AdminDashboard />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="operators" element={<AdminOperators />} />
         <Route path="officers" element={<AdminOfficers />} />
         <Route path="duties" element={<AdminDuties />} />

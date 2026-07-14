@@ -6,31 +6,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../api/axios';
 import { timeAgo } from '../../utils/helpers';
-
-const TYPE_ICONS = {
-  duty_assigned:     '📋',
-  duty_updated:      '✏️',
-  duty_cancelled:    '❌',
-  duty_rejected:     '🚫',
-  officer_replaced:  '🔄',
-  account_suspended: '🔒',
-  account_activated: '✅',
-  attendance_checkin:'🕒',
-  swap_requested:    '🔁',
-  swap_accepted:     '✅',
-  swap_rejected:     '🚫',
-  swap_cancelled:    '❌',
-  swap_executed:     '🔀',
-  leave_requested:   '📝',
-  leave_approved:    '✅',
-  leave_rejected:    '🚫',
-  leave_cancelled:   '❌',
-  leave_conflict:    '⚠️',
-  leave_threshold_locked: '🔒',
-  emergency_declared: '🚨',
-  emergency_ended:    '✅',
-  general:           '🔔',
-};
+import { getDutyNavPath } from '../../utils/notifNav';
+import { getNotifMeta } from '../../utils/notifIcons';
 
 const LEAVE_TYPES = new Set(['leave_requested', 'leave_approved', 'leave_rejected', 'leave_cancelled', 'leave_conflict', 'leave_threshold_locked']);
 
@@ -65,6 +42,7 @@ export default function NotificationBell() {
   const dropdownRef = useRef(null);
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const notifPath = useNotifPath();
   const leavePath = useLeavePath();
 
@@ -89,13 +67,22 @@ export default function NotificationBell() {
     onSuccess: () => qc.invalidateQueries(['notifications']),
   });
 
-  // Clicking a leave-related notification jumps straight to the leave page
-  // (and marks it read on the way) instead of only being readable/deletable.
+  // Clicking a leave-related notification jumps straight to the leave page,
+  // and clicking a duty-related notification (relatedDuty present) jumps to
+  // that duty's detail view for the current role — both mark it read first.
   const handleNotifClick = (n) => {
     if (!n.isRead) markRead.mutate(n._id);
     if (LEAVE_TYPES.has(n.type) && leavePath) {
       setOpen(false);
       navigate(leavePath);
+      return;
+    }
+    if (n.relatedDuty) {
+      const dutyPath = getDutyNavPath(user?.role, n.relatedDuty);
+      if (dutyPath) {
+        setOpen(false);
+        navigate(dutyPath);
+      }
     }
   };
 
@@ -175,15 +162,20 @@ export default function NotificationBell() {
         ) : (
           notifications.map(n => {
             const isLeaveNotif = LEAVE_TYPES.has(n.type) && !!leavePath;
+            const isDutyNotif = !!n.relatedDuty && !!getDutyNavPath(user?.role, n.relatedDuty);
+            const isClickable = isLeaveNotif || isDutyNotif;
+            const meta = getNotifMeta(n.type);
             return (
             <div
               key={n._id}
               onClick={() => handleNotifClick(n)}
-              className={`flex gap-3 px-4 py-3 group hover:bg-ink-50 dark:hover:bg-white/[0.03] transition-colors ${isLeaveNotif ? 'cursor-pointer' : ''} ${
+              className={`flex gap-3 px-4 py-3 group hover:bg-ink-50 dark:hover:bg-white/[0.03] transition-colors ${isClickable ? 'cursor-pointer' : ''} ${
                 !n.isRead ? 'bg-signal2-50/60 dark:bg-signal2-400/[0.06]' : ''
               }`}
             >
-              <span className="text-lg shrink-0 mt-0.5">{TYPE_ICONS[n.type] || '🔔'}</span>
+              <span className={`shrink-0 mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center ${meta.bg}`}>
+                <meta.icon className={`w-4 h-4 ${meta.fg}`} />
+              </span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-ink-900 dark:text-white truncate">{n.title}</p>
                 <p className="text-xs text-ink-500 dark:text-ink-400 mt-0.5 line-clamp-2">{n.body}</p>

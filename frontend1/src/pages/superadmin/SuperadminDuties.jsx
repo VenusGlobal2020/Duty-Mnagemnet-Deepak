@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   Search, ClipboardCheck, X, ExternalLink, MapPin, Clock, Phone,
   FileText, Users, CheckCircle, XCircle, RefreshCw, Calendar,
@@ -425,6 +426,21 @@ function DutiesTable({ queryKey, queryFn, apiPrefix, showAdmin = false, showOper
   const [search, setSearch]     = useState('');
   const [status, setStatus]     = useState('');
   const [selectedDutyId, setSelectedDutyId] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep-link support: a duty notification navigates here as
+  // `?duty=<id>` — open that duty's detail modal directly, without
+  // needing it to be present on the current filtered/paginated page.
+  useEffect(() => {
+    const dutyParam = searchParams.get('duty');
+    if (dutyParam) {
+      setSelectedDutyId(dutyParam);
+      const next = new URLSearchParams(searchParams);
+      next.delete('duty');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data, isLoading } = useQuery({
     queryKey: [...queryKey, page, search, status],
