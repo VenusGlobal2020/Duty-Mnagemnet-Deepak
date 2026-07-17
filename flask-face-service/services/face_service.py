@@ -2,12 +2,12 @@ import insightface
 import numpy as np
 
 app = insightface.app.FaceAnalysis(
-    name="buffalo_l"
+    name="buffalo_s"
 )
 
 app.prepare(
     ctx_id=0,
-    det_size=(640,640)
+    det_size=(320,320)
 )
 
 
